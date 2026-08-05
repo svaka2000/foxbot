@@ -1,0 +1,6 @@
+.DS_Store
+*.backup
+*.backup.*
+__pycache__/
+*.pyc
+.testhome/

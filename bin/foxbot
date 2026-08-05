@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""foxbot — read your Claude Code session history from the terminal.
+
+    foxbot                what happened today
+    foxbot today          same thing
+    foxbot week           the last seven days
+    foxbot now            sessions running right now
+    foxbot recent [n]     the last n sessions (default 15)
+    foxbot projects       every project, ranked by time
+    foxbot export [--csv] the whole history on stdout
+    foxbot doctor         check the install
+
+Reads the same files the pet does. Never writes anything.
+"""
+
+import json
+import os
+import sys
+import time
+from collections import OrderedDict
+
+DIR = os.path.expanduser("~/.claude/foxbot")
+LEDGER = os.path.join(DIR, "ledger.jsonl")
+INBOX = os.path.join(DIR, "inbox.jsonl")
+SETTINGS = os.path.expanduser("~/.claude/settings.json")
+HOOK = os.path.expanduser("~/.claude/hooks/foxbot.sh")
+FOX = os.path.expanduser("~/.hammerspoon/foxbot/init.lua")
+
+COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
+
+def paint(text, code):
+    return f"\033[{code}m{text}\033[0m" if COLOR else str(text)
+
+
+def accent(t): return paint(t, "38;5;173")
+def dim(t):    return paint(t, "2")
+def bold(t):   return paint(t, "1")
+def green(t):  return paint(t, "32")
+def blue(t):   return paint(t, "34")
+
+
+# ------------------------------------------------------------------- loading
+
+def rows(path=LEDGER):
+    """History rows, newest first."""
+    out = []
+    try:
+        with open(path) as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(row, dict) and row.get("ts"):
+                    out.append(row)
+    except FileNotFoundError:
+        return []
+    out.reverse()
+    return out
+
+
+def start_of_day(when=None):
+    t = time.localtime(when if when is not None else time.time())
+    return int(time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1)))
+
+
+# ----------------------------------------------------------------- formatting
+
+def human(seconds):
+    seconds = int(seconds or 0)
+    if seconds <= 0:
+        return "0m"
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    return f"{seconds // 3600}h {(seconds % 3600) // 60:02d}m"
+
+
+def tokens(n):
+    n = int(n or 0)
+    if n <= 0:
+        return "—"
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        return f"{n / 1000:.1f}k"
+    return f"{n / 1_000_000:.1f}M"
+
+
+def bar(value, peak, width=18):
+    if peak <= 0:
+        return " " * width
+    filled = max(1, round(width * value / peak)) if value > 0 else 0
+    return accent("█" * filled) + dim("·" * (width - filled))
+
+
+def summarise(history, since=None):
+    total = {"turns": 0, "seconds": 0, "tokens": 0, "sessions": set(),
+             "projects": OrderedDict()}
+    for row in history:
+        if since and row["ts"] < since:
+            continue
+        total["turns"] += 1
+        total["seconds"] += row.get("elapsed") or 0
+        total["tokens"] += (row.get("tokens") or 0) + (row.get("subTokens") or 0)
+        sid = row.get("session_id") or row.get("session")
+        if sid:
+            total["sessions"].add(sid)
+
+        folder = row.get("folder") or row.get("session") or "—"
+        bucket = total["projects"].setdefault(
+            folder, {"turns": 0, "seconds": 0, "tokens": 0})
+        bucket["turns"] += 1
+        bucket["seconds"] += row.get("elapsed") or 0
+        bucket["tokens"] += (row.get("tokens") or 0) + (row.get("subTokens") or 0)
+    return total
+
+
+def streak(history):
+    days = {start_of_day(r["ts"]) for r in history}
+    if not days:
+        return 0
+    count, cursor = 0, start_of_day()
+    if cursor not in days:
+        cursor -= 86400          # yesterday still counts before today starts
+    while cursor in days:
+        count += 1
+        cursor -= 86400
+    return count
+
+
+def field(label, value, colour=None):
+    shown = colour(value) if colour else value
+    print(f"  {dim(label.ljust(14))} {shown}")
+
+
+def ranked(total, limit=None):
+    out = sorted(total["projects"].items(),
+                 key=lambda kv: (kv[1]["seconds"], kv[1]["turns"]), reverse=True)
+    return out[:limit] if limit else out
+
+
+# -------------------------------------------------------------------- commands
+
+def cmd_today(history, args):
+    since = start_of_day()
+    total = summarise(history, since)
+    print(f"\n{bold('foxbot')} {dim('·')} {accent('today')}\n")
+
+    if not total["turns"]:
+        print(dim("  nothing yet today\n"))
+        return
+
+    field("turns", total["turns"])
+    field("working", human(total["seconds"]))
+    field("sessions", len(total["sessions"]))
+    field("tokens", tokens(total["tokens"]))
+    run = streak(history)
+    if run > 1:
+        field("streak", green(f"{run} days"))
+
+    top = ranked(total, 8)
+    if top:
+        peak = top[0][1]["seconds"]
+        print(f"\n  {dim('where it went')}")
+        for folder, b in top:
+            print(f"  {folder[:20].ljust(20)} {bar(b['seconds'], peak)} "
+                  f"{human(b['seconds']).rjust(7)} {dim(tokens(b['tokens']).rjust(8))}")
+    print()
+
+
+def cmd_week(history, args):
+    print(f"\n{bold('foxbot')} {dim('·')} {accent('last 7 days')}\n")
+    days = []
+    for offset in range(6, -1, -1):
+        day = start_of_day(time.time() - offset * 86400)
+        rows_ = [r for r in history if start_of_day(r["ts"]) == day]
+        days.append((day, summarise(rows_)))
+
+    peak = max((d[1]["seconds"] for d in days), default=0)
+    for day, total in days:
+        label = time.strftime("%a %d", time.localtime(day))
+        print(f"  {label.ljust(8)} {bar(total['seconds'], peak)} "
+              f"{str(total['turns']).rjust(3)} turns {human(total['seconds']).rjust(7)} "
+              f"{dim(tokens(total['tokens']).rjust(8))}")
+
+    grand = summarise(history, start_of_day(time.time() - 6 * 86400))
+    print(f"\n  {dim('total'.ljust(8))} {grand['turns']} turns · "
+          f"{human(grand['seconds'])} · {tokens(grand['tokens'])}\n")
+
+
+def cmd_now(history, args):
+    """Sessions that started and haven't reported finishing."""
+    print(f"\n{bold('foxbot')} {dim('·')} {accent('running now')}\n")
+
+    live = {}
+    try:
+        with open(INBOX) as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                key = e.get("session_id") or e.get("session")
+                if not key:
+                    continue
+                if e.get("kind") == "busy":
+                    live[key] = e
+                elif e.get("kind") in ("done", "end", "error"):
+                    live.pop(key, None)
+    except FileNotFoundError:
+        pass
+
+    now = int(time.time())
+    live = {k: v for k, v in live.items() if now - v.get("ts", 0) < 30 * 60}
+
+    if not live:
+        print(dim("  nothing running\n"))
+        return
+    for e in sorted(live.values(), key=lambda x: x.get("ts", 0)):
+        elapsed = now - e.get("ts", now)
+        print(f"  {blue('●')} {(e.get('session') or '?')[:28].ljust(28)} "
+              f"{human(elapsed).rjust(7)} {dim(e.get('folder') or '')}")
+    print()
+
+
+def cmd_recent(history, args):
+    limit = 15
+    if args and args[0].isdigit():
+        limit = int(args[0])
+
+    print(f"\n{bold('foxbot')} {dim('·')} {accent('recent')}\n")
+    seen, shown = set(), 0
+    for row in history:
+        key = row.get("session_id") or row.get("session")
+        if key in seen:
+            continue
+        seen.add(key)
+        when = time.strftime("%a %H:%M", time.localtime(row["ts"]))
+        print(f"  {dim(when.ljust(10))} {(row.get('session') or '?')[:26].ljust(26)} "
+              f"{human(row.get('elapsed')).rjust(7)} {dim(tokens(row.get('tokens')).rjust(8))}")
+        shown += 1
+        if shown >= limit:
+            break
+    if not shown:
+        print(dim("  nothing yet"))
+    print()
+
+
+def cmd_projects(history, args):
+    total = summarise(history)
+    print(f"\n{bold('foxbot')} {dim('·')} {accent('projects')} {dim('(all time)')}\n")
+    top = ranked(total)
+    if not top:
+        print(dim("  nothing yet\n"))
+        return
+    peak = top[0][1]["seconds"]
+    for folder, b in top:
+        print(f"  {folder[:22].ljust(22)} {bar(b['seconds'], peak)} "
+              f"{str(b['turns']).rjust(4)} turns {human(b['seconds']).rjust(8)} "
+              f"{dim(tokens(b['tokens']).rjust(8))}")
+    print()
+
+
+def cmd_export(history, args):
+    if "--csv" in args:
+        print("ts,iso,session,folder,elapsed_seconds,tokens,sub_tokens,context,model")
+        for row in reversed(history):
+            iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(row["ts"]))
+            name = (row.get("session") or "").replace('"', "'")
+            print(f'{row["ts"]},{iso},"{name}",{row.get("folder","")},'
+                  f'{row.get("elapsed",0)},{row.get("tokens",0)},'
+                  f'{row.get("subTokens",0)},{row.get("context",0)},{row.get("model","")}')
+    else:
+        for row in reversed(history):
+            print(json.dumps(row))
+
+
+def cmd_doctor(history, args):
+    print(f"\n{bold('foxbot')} {dim('·')} {accent('doctor')}\n")
+
+    def check(label, good, detail=""):
+        mark = green("ok") if good else paint("!!", "31")
+        print(f"  [{mark}] {label.ljust(26)} {dim(detail)}")
+        return good
+
+    check("fox installed", os.path.exists(FOX), FOX)
+    check("hook installed", os.path.exists(HOOK), HOOK)
+    check("hook executable", os.access(HOOK, os.X_OK))
+
+    wired = []
+    try:
+        with open(SETTINGS) as f:
+            hooks = json.load(f).get("hooks", {})
+        for event, groups in hooks.items():
+            for group in groups:
+                for h in group.get("hooks", []):
+                    if "foxbot.sh" in h.get("command", ""):
+                        wired.append(event)
+    except Exception:
+        pass
+    check("hooks wired", len(wired) >= 5,
+          ", ".join(sorted(set(wired))) or "none")
+
+    running = os.system("pgrep -x Hammerspoon >/dev/null 2>&1") == 0
+    check("Hammerspoon running", running)
+
+    check("ledger readable", os.path.exists(LEDGER),
+          f"{len(history)} turns recorded" if history else "nothing recorded yet")
+
+    print()
+
+
+COMMANDS = {
+    "today": cmd_today, "week": cmd_week, "now": cmd_now,
+    "recent": cmd_recent, "projects": cmd_projects,
+    "export": cmd_export, "doctor": cmd_doctor,
+}
+
+
+def main():
+    argv = sys.argv[1:]
+    name = argv[0] if argv else "today"
+
+    if name in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    if name not in COMMANDS:
+        print(f"foxbot: unknown command {name!r}\n")
+        print(__doc__)
+        return 1
+
+    COMMANDS[name](rows(), argv[1:])
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        os._exit(0)              # piping into `head` is not an error
+    except KeyboardInterrupt:
+        sys.exit(130)

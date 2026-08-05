@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+
+      - name: Lua syntax
+        run: |
+          for f in hammerspoon/init.lua hammerspoon/foxbot/*.lua tests/*.lua; do
+            luac5.4 -p "$f" && echo "ok   $f"
+          done
+
+      - name: Unit tests
+        run: lua5.4 tests/run.lua
+
+      - name: Shell syntax
+        run: |
+          bash -n install.sh
+          bash -n uninstall.sh
+          bash -n hooks/foxbot.sh
+          bash -n tests/hook.sh
+
+      - name: Hook integration tests
+        run: ./tests/hook.sh
+
+      - name: Python syntax
+        run: |
+          python3 -m py_compile bin/foxbot tools/draw_fox.py
+          # The hook's logic lives in a heredoc; compile it on its own.
+          sed -n '/^FOXBOT_KIND=.*<<.PY.$/,/^PY$/p' hooks/foxbot.sh | sed '1d;$d' > /tmp/hook.py
+          python3 -m py_compile /tmp/hook.py
+
+      - name: The sprite still draws
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 tools/draw_fox.py --out /tmp/fox.png
+
+      - name: Nothing talks to the network
+        run: |
+          if grep -rn "hs.http\|urlevent\|curl \|wget \|socket\." hammerspoon/ hooks/; then
+            echo "::error::a network call appeared — this project stays offline"
+            exit 1
+          fi
+          echo "ok: no network calls"
+
+      - name: The AppleScript bridge stays off
+        run: |
+          if grep -rn "^[^-]*hs.allowAppleScript(true)" hammerspoon/ install.sh; then
+            echo "::error::the AppleScript bridge must never be on by default"
+            exit 1
+          fi
+          echo "ok: bridge is off"
