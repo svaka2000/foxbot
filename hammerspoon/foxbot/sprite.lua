@@ -38,12 +38,17 @@ function Sprite.new(opts)
   self.phase = 0
   self.gesture = nil
 
-  local file = Coats.path(self.settings.coat)
+  self.art = {}                 -- mood -> loaded image, kept so swaps are free
+  self.worn = nil
+
+  local file = Coats.path(self.settings.coat, "resting")
   local image = hs.image.imageFromPath(file)
   if not image then
     hs.alert.show("foxbot: no sprite at " .. tostring(file))
     return nil
   end
+  self.art.resting = image
+  self.worn = "resting"
 
   local size = image:size()
   self.w = Palette.foxWidth
@@ -112,12 +117,33 @@ end
 
 -- --------------------------------------------------------------------- mood
 
+--- Put on whichever drawing this mood asks for.
+---
+--- A coat only has to provide the default; anything missing falls back to it,
+--- and the mood still reads through the badge and the motion. Images are loaded
+--- once and kept, so changing mood is just swapping a reference.
+function Sprite:wear(mood)
+  local wanted = Mood.art(mood)
+  if wanted == self.worn then return end
+
+  local image = self.art[wanted]
+  if image == nil then
+    image = hs.image.imageFromPath(Coats.path(self.settings.coat, wanted)) or false
+    self.art[wanted] = image
+  end
+  if not image then return end
+
+  self.worn = wanted
+  if self.canvas then self.canvas[1].image = image end
+end
+
 --- Move to `name`. Moods with a `linger` fall back to `after` when it runs out.
 function Sprite:feel(name, after)
   local mood = Mood.get(name)
   self.mood = name
   self.after = after or "resting"
   self.until_ = mood.linger and (os.time() + mood.linger) or nil
+  self:wear(name)
   self:paintBadge()
 end
 
@@ -126,6 +152,7 @@ function Sprite:settle(resolve)
   if not self.until_ or os.time() < self.until_ then return end
   self.until_ = nil
   self.mood = (resolve and resolve()) or self.after or "resting"
+  self:wear(self.mood)
   self:paintBadge()
 end
 

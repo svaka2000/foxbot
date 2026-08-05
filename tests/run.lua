@@ -372,6 +372,113 @@ do
   t.setFiles({ "foxbot.png" })
 end
 
+-- --------------------------------------------------------------------- moods
+
+do
+  local Mood = require("foxbot.mood")
+
+  -- Order of precedence. Something blocked on you beats everything.
+  check("blocked outranks running",
+        Mood.settle({ waiting = 1, running = 3, longestRun = 9999 }), "asking")
+  check("blocked outranks the clock",
+        Mood.settle({ waiting = 1, nightTime = true, away = true }), "asking")
+
+  -- A long turn is the more interesting fact than a fresh one.
+  check("a fresh turn is just running",
+        Mood.settle({ running = 1, longestRun = 30 }), "running")
+  check("a long turn is focused",
+        Mood.settle({ running = 1, longestRun = Mood.DEEP_AFTER }), "focused")
+  check("running outranks being away",
+        Mood.settle({ running = 1, away = true }), "running")
+  check("running outranks the hour",
+        Mood.settle({ running = 1, nightTime = true }), "running")
+
+  -- Ambient states, only when nothing is happening.
+  check("away means dozing", Mood.settle({ away = true }), "dozing")
+  check("away outranks night",
+        Mood.settle({ away = true, nightTime = true }), "dozing")
+  check("night means asleep", Mood.settle({ nightTime = true }), "sleeping")
+  check("a long day shows",
+        Mood.settle({ workedToday = Mood.LONG_DAY }), "weary")
+  check("a short day doesn't",
+        Mood.settle({ workedToday = 60 }), "resting")
+  check("night beats tiredness",
+        Mood.settle({ nightTime = true, workedToday = Mood.LONG_DAY }), "sleeping")
+  check("nothing at all is resting", Mood.settle({}), "resting")
+  check("no context is safe", Mood.settle(nil), "resting")
+
+  -- Every mood has to be complete enough to actually render.
+  local broken = {}
+  for _, name in ipairs(Mood.order) do
+    local mood = Mood.get(name)
+    if not (mood.label and mood.motion and mood.motion.period and mood.art) then
+      broken[#broken + 1] = name
+    end
+    if mood.badge and not Mood.colour(name) then broken[#broken + 1] = name end
+  end
+  check("every mood is renderable", #broken, 0)
+  check("all ten are listed", #Mood.order, 10)
+
+  -- Whatever settle can return must be a mood that exists.
+  local reachable = { "asking", "running", "focused", "dozing", "sleeping",
+                      "weary", "resting", "cheering" }
+  local missing = 0
+  for _, name in ipairs(reachable) do
+    if not Mood.all[name] then missing = missing + 1 end
+  end
+  check("settle only returns real moods", missing, 0)
+
+  check("an unknown kind still gives a mood", Mood.fromKind("nonsense"), "settled")
+  check("art falls back", Mood.art("nonsense"), "resting")
+end
+
+-- --------------------------------------------------------------- coat variants
+
+do
+  local Coats = require("foxbot.coats")
+  local Mood = require("foxbot.mood")
+
+  t.setFiles({ "foxbot.png", "foxbot-sleeping.png", "foxbot-asking.png",
+               "vixen.png", "vixen-broken.png", "notes.txt" })
+
+  -- Mood drawings belong to their coat; they are not coats themselves.
+  local coats = Coats.all(Mood.order)
+  check("variants aren't offered as coats", #coats, 2)
+  check("the default comes first", coats[1].id, "foxbot")
+  check("and is named", coats[1].label, "Foxbot")
+  check("the other coat is there", coats[2].id, "vixen")
+
+  local function filename(path) return path:match("([^/]+)$") end
+
+  check("a mood with art wears it",
+        filename(Coats.path("foxbot", "sleeping")), "foxbot-sleeping.png")
+  check("a mood without art falls back to the coat",
+        filename(Coats.path("foxbot", "cheering")), "foxbot.png")
+  check("no mood asked for means the coat",
+        filename(Coats.path("foxbot", nil)), "foxbot.png")
+  check("another coat keeps its own variants",
+        filename(Coats.path("vixen", "broken")), "vixen-broken.png")
+  check("and falls back to itself, not the default",
+        filename(Coats.path("vixen", "sleeping")), "vixen.png")
+  check("an unknown coat falls back to the default",
+        filename(Coats.path("ghost", "sleeping")), "foxbot.png")
+
+  local have = Coats.moods("foxbot", Mood.order)
+  table.sort(have)
+  check("it knows which moods are drawn", #have, 2)
+  check("and which they are", table.concat(have, ","), "asking,sleeping")
+  check("a coat with one variant", #Coats.moods("vixen", Mood.order), 1)
+
+  -- A coat whose name contains a hyphen must not be mistaken for a variant.
+  t.setFiles({ "foxbot.png", "red-panda.png", "red-panda-sleeping.png" })
+  local hyphened = Coats.all(Mood.order)
+  check("a hyphenated coat name survives", #hyphened, 2)
+  check("and its variant still attaches",
+        filename(Coats.path("red-panda", "sleeping")), "red-panda-sleeping.png")
+
+  t.setFiles({ "foxbot.png" })
+end
+
 -- ---------------------------------------------------------------------- away
 
 do

@@ -45,6 +45,11 @@ local SCHEMA = {
   hushTo      = 8,
   hushSoftly  = false,       -- silence but still show
 
+  -- When he curls up. Separate from quiet hours: you might want him silent
+  -- overnight but still awake, or asleep without muting anything.
+  sleepFrom   = 23,
+  sleepTo     = 6,
+
   -- coming back
   catchUp     = true,        -- hold notes while away, hand back one summary
   awayAfter   = 0,           -- 0 = locked/asleep only; else seconds idle

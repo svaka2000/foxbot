@@ -111,22 +111,44 @@ the bottom to open the folder, open it in your editor, or copy the summary.
 | **Quiet hours** | plus automatic silence while you're screen sharing |
 | **Catch-up** | one summary when you come back, not eleven stale notes |
 | **Per project** | mute or re-voice a noisy one |
-| **Your own sprite** | drop a PNG in `assets/` |
+| **Your own sprite** | drop a PNG in `assets/`, one per mood if you like |
 | **A CLI** | `foxbot today`, `now`, `week`, `doctor` |
 
 ## The moods
 
-One drawing, five states. Shipping five sprites would mean five things to keep
-in sync and redraw for every skin; a coloured badge plus a change in how he
-moves carries the same information and stays true for any sprite you drop in.
+Ten of them.
 
-| Badge | Mood | When |
-|---|---|---|
-| — | resting | nothing running |
-| 🔵 blue, breathing fast | working | a session is mid-turn |
-| 🟡 amber, pulsing | waiting on you | a question is unanswered — **stays** until you deal with it |
-| 🟢 green | just finished | a turn landed |
-| 🔴 red | broken | wire it yourself, see below |
+| Mood | When |
+|---|---|
+| resting | nothing running |
+| **working** | a turn is underway |
+| **deep in it** | that turn has been going five minutes |
+| **waiting on you** | a question is unanswered — *stays* until you deal with it |
+| **just finished** | a turn landed |
+| **pleased with itself** | twenty-five turns in a day |
+| **something broke** | a failure |
+| **long day** | three hours of work behind you, nothing running |
+| **dozing** | you're away from the machine |
+| **asleep** | the small hours, nothing running |
+
+Every one is driven by something real — if he looks tired it's because you've
+had a long day, and if he's asleep it's because it's 2am and nothing is running.
+Precedence is deliberate: blocked beats running, running beats the clock, and
+the ambient states only get a look in when nothing is happening.
+
+Each mood can have **its own drawing** (`foxbot-sleeping.png` and so on). Any
+you haven't drawn fall back to the default and express themselves through the
+badge and how he moves instead, so a half-finished set still works.
+**[How to draw the rest →](docs/SPRITES.md)**
+
+## The control panel
+
+Click him — or the menu bar icon — and you get a drawn panel rather than a
+system menu: a live status header, today's numbers across the top, real
+switches, and his own colours. A system menu can't carry any of that, which is
+most of what makes it worth opening.
+
+Sub-pages open in place with a back row, so you don't lose your footing.
 
 ## He won't let you miss a question
 
@@ -277,7 +299,7 @@ python3 tools/draw_fox.py     # writes assets/classic.png
 
 ```bash
 brew install lua
-lua tests/run.lua      # 145 unit tests
+lua tests/run.lua      # 179 unit tests
 ./tests/hook.sh        # 65 integration tests against the real hook
 ```
 

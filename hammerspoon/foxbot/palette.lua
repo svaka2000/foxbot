@@ -119,6 +119,7 @@ Palette.barHeight  = 6     -- report bars
 Palette.face   = "Menlo"   -- monospace, to match where the sessions live
 Palette.head   = 13
 Palette.body   = 12
+Palette.menu   = 12.5
 Palette.small  = 10.5
 Palette.tiny   = 12        -- the dismiss cross
 

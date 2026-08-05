@@ -5,10 +5,9 @@
 --- on you, puts notes on screen, and writes finished turns to a ledger so the
 --- numbers survive a restart.
 ---
---- Menus are macOS's own. Drawing a custom menu means also drawing a shield to
---- catch clicks outside it, keyboard handling, and scroll — all to end up with
---- something that looks less like the rest of the system. The native menu is
---- fewer moving parts and behaves the way people expect.
+--- The control panel is drawn rather than an AppKit menu, because a system menu
+--- can't carry a live status header, real switches, a strip of today's numbers,
+--- or the fox's own colours — and those are most of what makes it useful.
 
 local Settings = require("foxbot.settings")
 local Palette  = require("foxbot.palette")
@@ -24,6 +23,7 @@ local Sessions = require("foxbot.sessions")
 local History  = require("foxbot.history")
 local Stats    = require("foxbot.stats")
 local Away     = require("foxbot.away")
+local Board    = require("foxbot.menu")
 
 local M = {}
 
@@ -64,7 +64,7 @@ local DETAIL_LINES = { name = nil, brief = 3, full = 6 }
 local AWAY_STEPS = { 0, 900, 1800 }
 local AWAY_LABEL = { [0] = "locked or asleep", [900] = "15 min idle", [1800] = "30 min idle" }
 
-local settings, fox, panel, bar, watcher, keys
+local settings, fox, panel, board, bar, watcher, keys
 local sessions, ledger, away
 local readTo = 0
 local lastSeen = {}
@@ -120,12 +120,31 @@ local function keyOf(event)
   return (event.session_id ~= "" and event.session_id) or event.session
 end
 
---- Where the fox settles once a temporary mood runs out. A question outranks
---- work in progress: something is blocked on you, and it should stay obvious.
+--- What he settles into when nothing momentary is happening.
+---
+--- Everything fed in here is a real signal: what's running, how long the
+--- longest turn has been going, whether anything is blocked on you, whether
+--- you're at the machine, the time of day, and how much work has gone through
+--- today. Mood.settle decides the order.
 local function restingMood()
-  if sessions:isWaiting() then return "asking" end
-  return sessions:isBusy() and "running" or "resting"
+  local longest = 0
+  for _, row in ipairs(sessions:list()) do
+    longest = math.max(longest, row.elapsed or 0)
+  end
+
+  local hour = tonumber(os.date("%H"))
+  local today = Stats.summarise(ledger.rows, Stats.startOfDay())
+
+  return Mood.settle({
+    waiting = sessions:waitingCount(),
+    running = sessions:count(),
+    longestRun = longest,
+    away = away and away:isAway() or false,
+    nightTime = Hush.within(hour, settings.sleepFrom or 23, settings.sleepTo or 6),
+    workedToday = today.seconds,
+  })
 end
+
 
 local function refeel(kind)
   if not fox then return end
@@ -397,146 +416,206 @@ local function handle(event)
   end
 
   refeel(kind)
+
+  -- Every twenty-five turns in a day, he's pleased with himself. Briefly.
+  if kind == "done" then
+    local today = Stats.summarise(ledger.rows, Stats.startOfDay())
+    if today.turns > 0 and today.turns % 25 == 0 then
+      fox:feel("cheering", restingMood())
+    end
+  end
+
   M.paintBar()
   announce(event, elapsed)
 end
 
 -- ------------------------------------------------------------------- menus
 
-local function tick(on) return on and "✓ " or "   " end
+local home        -- forward declaration; sub-pages link back to it
 
-local function runningMenu()
-  local items = {}
+local function backRow()
+  return { kind = "back", title = "‹  Back" }
+end
+
+--- The header: what he is doing, in a sentence, with a dot the right colour.
+local function statusRow()
+  local waiting, running = sessions:waitingCount(), sessions:count()
+  local mood = restingMood()
+
+  local title, detail
+  if waiting > 0 then
+    title = waiting == 1 and "1 session needs you" or (waiting .. " sessions need you")
+    local first = sessions:blocked()[1]
+    detail = first and ("blocked " .. (Sessions.duration(first.elapsed) or "")) or nil
+  elseif running > 0 then
+    title = running == 1 and "1 session running" or (running .. " sessions running")
+    local longest = sessions:list()[1]
+    detail = longest and (longest.session .. " · " .. (Sessions.duration(longest.elapsed) or "")) or nil
+  else
+    title = "Nothing running"
+    detail = Mood.get(mood).label:lower()
+  end
+
+  return { kind = "status", title = title, detail = detail,
+           tone = Mood.get(mood).badge }
+end
+
+--- Today, in three figures.
+local function statsRow()
+  local today = Stats.summarise(ledger.rows, Stats.startOfDay())
+  return {
+    kind = "stats",
+    items = {
+      { label = "turns",  value = tostring(today.turns) },
+      { label = "worked", value = Stats.human(today.seconds) },
+      { label = "tokens", value = Stats.tokens(today.tokens + today.subTokens) or "—" },
+    },
+  }
+end
+
+local function runningPage()
+  local rows = { statusRow(), { kind = "sep" } }
+
   local blocked = sessions:blocked()
-
   if #blocked > 0 then
-    items[#items + 1] = { title = "Waiting on you", disabled = true }
+    rows[#rows + 1] = { kind = "label", title = "Waiting on you" }
     for _, row in ipairs(blocked) do
-      items[#items + 1] = {
-        title = "   " .. row.session .. "   " .. (Sessions.duration(row.elapsed) or ""),
-        fn = function() Focus.terminal(row.tty, row.app) end,
+      rows[#rows + 1] = {
+        kind = "row", title = row.session, tone = "asking",
+        value = Sessions.duration(row.elapsed),
+        note = (row.hint ~= "" and row.hint) or nil,
+        act = function() Focus.terminal(row.tty, row.app) end,
       }
     end
-    items[#items + 1] = { title = "-" }
+    rows[#rows + 1] = { kind = "sep" }
   end
 
   local live = sessions:list()
-  items[#items + 1] = { title = "Running now", disabled = true }
+  rows[#rows + 1] = { kind = "label", title = "Running" }
   if #live == 0 then
-    items[#items + 1] = { title = "   nothing", disabled = true }
+    rows[#rows + 1] = { kind = "row", title = "Nothing right now", tone = "faded" }
   end
   for _, row in ipairs(live) do
-    items[#items + 1] = {
-      title = "   " .. row.session .. "   " .. (Sessions.duration(row.elapsed) or ""),
-      fn = function() Focus.terminal(row.tty, row.app) end,
+    rows[#rows + 1] = {
+      kind = "row", title = row.session, tone = "running",
+      value = Sessions.duration(row.elapsed),
+      act = function() Focus.terminal(row.tty, row.app) end,
     }
   end
-  return items
+
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = backRow()
+  return rows
 end
 
-local function reportMenu()
-  local since = Stats.startOfDay()
-  local today = Stats.summarise(ledger.rows, since)
+local function reportPage()
+  local today = Stats.summarise(ledger.rows, Stats.startOfDay())
   local week = Stats.summarise(ledger.rows, Stats.startOfDay(os.time() - 6 * 86400))
   local streak = Stats.streak(ledger.rows)
 
-  local items = {
-    { title = "Today", disabled = true },
-    { title = "   " .. today.turns .. " turns", disabled = true },
-    { title = "   " .. Stats.human(today.seconds) .. " working", disabled = true },
-  }
-  local spent = Stats.tokens(today.tokens + today.subTokens)
-  if spent then items[#items + 1] = { title = "   " .. spent .. " tokens", disabled = true } end
-  if streak > 1 then
-    items[#items + 1] = { title = "   " .. streak .. " day streak", disabled = true }
-  end
+  local rows = { statsRow(), { kind = "sep" }, { kind = "label", title = "Where it went" } }
 
   local ranked = Stats.ranked(today, 5)
-  if #ranked > 0 then
-    items[#items + 1] = { title = "-" }
-    items[#items + 1] = { title = "Where it went", disabled = true }
-    for _, bucket in ipairs(ranked) do
-      items[#items + 1] = {
-        title = string.format("   %-18s %s", bucket.folder, Stats.human(bucket.seconds)),
-        disabled = true,
-      }
-    end
+  if #ranked == 0 then
+    rows[#rows + 1] = { kind = "row", title = "Nothing today yet", tone = "faded" }
+  end
+  for _, bucket in ipairs(ranked) do
+    rows[#rows + 1] = {
+      kind = "row", title = bucket.folder,
+      value = Stats.human(bucket.seconds) ..
+              (Stats.tokens(bucket.tokens) and ("  " .. Stats.tokens(bucket.tokens)) or ""),
+    }
   end
 
-  items[#items + 1] = { title = "-" }
-  items[#items + 1] = { title = "This week", disabled = true }
-  items[#items + 1] = { title = "   " .. week.turns .. " turns · "
-                        .. Stats.human(week.seconds), disabled = true }
-  return items
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = { kind = "label", title = "Longer view" }
+  rows[#rows + 1] = { kind = "row", title = "This week",
+                      value = week.turns .. " turns · " .. Stats.human(week.seconds) }
+  if streak > 1 then
+    rows[#rows + 1] = { kind = "row", title = "Streak", tone = "settled",
+                        value = streak .. " days" }
+  end
+
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = backRow()
+  return rows
 end
 
-local function recentMenu()
-  local items, seen = {}, {}
+local function recentPage()
+  local rows = { { kind = "label", title = "Recent sessions" } }
+  local seen = {}
 
   for _, event in ipairs(recent) do
     seen[keyOf(event)] = true
-    items[#items + 1] = {
-      title = os.date("%H:%M", event.ts) .. "  " .. event.session,
-      fn = function() Focus.terminal(event.tty, event.app) end,
+    rows[#rows + 1] = {
+      kind = "row", title = event.session, value = os.date("%H:%M", event.ts),
+      act = function() Focus.terminal(event.tty, event.app) end,
     }
   end
   for _, row in ipairs(ledger:recent(RECALL)) do
     local key = row.session_id or row.session
     if not seen[key] then
       seen[key] = true
-      items[#items + 1] = {
-        title = os.date("%H:%M", row.ts) .. "  " .. row.session,
-        fn = function() Focus.reveal(row.cwd) end,
+      rows[#rows + 1] = {
+        kind = "row", title = row.session, value = os.date("%H:%M", row.ts),
+        act = function() Focus.reveal(row.cwd) end,
       }
     end
   end
+  if #rows == 1 then
+    rows[#rows + 1] = { kind = "row", title = "Nothing yet", tone = "faded" }
+  end
 
-  if #items == 0 then items[1] = { title = "nothing yet", disabled = true } end
-  return items
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = backRow()
+  return rows
 end
 
-local function voiceMenu()
-  local items = {}
+local function voicePage()
+  local rows = { { kind = "label", title = "How he says it" } }
   for _, name in ipairs(Voice.order) do
     local voice = Voice.get(name)
-    items[#items + 1] = {
-      title = voice.label .. "  —  " .. Voice.sample(name, "done"),
-      checked = settings.voice == name,
-      fn = function()
+    rows[#rows + 1] = {
+      kind = "choice", title = voice.label, on = settings.voice == name,
+      note = "“" .. Voice.sample(name, "done") .. "”",
+      act = function()
         settings.voice = name
         Settings.save(settings)
         M.demo()
       end,
     }
   end
-  return items
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = backRow()
+  return rows
 end
 
-local function detailMenu()
-  local items = {}
+local function detailPage()
+  local rows = { { kind = "label", title = "How much of a finished turn" } }
   for _, option in ipairs(DETAIL) do
-    items[#items + 1] = {
-      title = option.label .. "  (" .. option.note .. ")",
-      checked = settings.detail == option.id,
-      fn = function()
+    rows[#rows + 1] = {
+      kind = "choice", title = option.label, on = settings.detail == option.id,
+      note = option.note,
+      act = function()
         settings.detail = option.id
         Settings.save(settings)
         M.demoLines()
       end,
     }
   end
-  return items
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = backRow()
+  return rows
 end
 
-local function chimeMenu()
-  local items = {}
-  for _, event in ipairs(CHIME_EVENTS) do
-    local picks = {}
+local function soundPickPage(event)
+  return function()
+    local rows = { { kind = "label", title = event.label } }
     for _, choice in ipairs(Chime.choices()) do
-      picks[#picks + 1] = {
-        title = choice.label,
-        checked = chimeFor(event.kind) == choice.id,
-        fn = function()
+      rows[#rows + 1] = {
+        kind = "choice", title = choice.label,
+        on = chimeFor(event.kind) == choice.id,
+        act = function()
           settings.chimes = settings.chimes or {}
           settings.chimes[event.kind] = choice.id
           Settings.save(settings)
@@ -544,35 +623,95 @@ local function chimeMenu()
         end,
       }
     end
-    items[#items + 1] = {
-      title = event.label .. "   " .. Chime.label(chimeFor(event.kind)),
-      menu = picks,
-    }
+    rows[#rows + 1] = { kind = "sep" }
+    rows[#rows + 1] = backRow()
+    return rows
   end
-  items[#items + 1] = { title = "-" }
-  items[#items + 1] = { title = "Add your own…", fn = function() Chime.reveal() end }
-  return items
 end
 
-local function coatMenu()
-  local items = {}
-  for _, coat in ipairs(Coats.all()) do
-    items[#items + 1] = {
-      title = coat.label,
-      checked = (settings.coat or Coats.default) == coat.id,
-      fn = function()
-        settings.coat = coat.id
+local function soundsPage()
+  local rows = { { kind = "label", title = "A sound per event" } }
+  for _, event in ipairs(CHIME_EVENTS) do
+    rows[#rows + 1] = {
+      kind = "into", title = event.label,
+      value = Chime.label(chimeFor(event.kind)),
+      page = soundPickPage(event),
+    }
+  end
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = {
+    kind = "row", title = "Add your own…",
+    note = "drop audio in the folder, then reload",
+    act = function() Chime.reveal() end,
+  }
+  rows[#rows + 1] = backRow()
+  return rows
+end
+
+local function hushPage()
+  local rows = {
+    { kind = "label", title = "Quiet hours" },
+    { kind = "toggle", title = "Keep quiet overnight", on = settings.hush,
+      note = "he keeps tracking, he just stops interrupting",
+      act = function() Settings.toggle(settings, "hush") end },
+    { kind = "row", title = "Starts", value = string.format("%02d:00", settings.hushFrom or 22),
+      act = function()
+        settings.hushFrom = ((settings.hushFrom or 22) + 1) % 24
         Settings.save(settings)
-        hs.reload()          -- the sprite is built once, at load
-      end,
-    }
-  end
-  items[#items + 1] = { title = "-" }
-  items[#items + 1] = { title = "Add your own…", fn = function() Coats.reveal() end }
-  return items
+      end },
+    { kind = "row", title = "Ends", value = string.format("%02d:00", settings.hushTo or 8),
+      act = function()
+        settings.hushTo = ((settings.hushTo or 8) + 1) % 24
+        Settings.save(settings)
+      end },
+    { kind = "toggle", title = "Silence only", on = settings.hushSoftly,
+      note = "notes still appear, they just make no sound",
+      act = function() Settings.toggle(settings, "hushSoftly") end },
+    { kind = "sep" },
+    { kind = "label", title = "When he sleeps" },
+    { kind = "row", title = "Curls up at",
+      value = string.format("%02d:00", settings.sleepFrom or 23),
+      act = function()
+        settings.sleepFrom = ((settings.sleepFrom or 23) + 1) % 24
+        Settings.save(settings)
+      end },
+    { kind = "row", title = "Wakes at",
+      value = string.format("%02d:00", settings.sleepTo or 6),
+      act = function()
+        settings.sleepTo = ((settings.sleepTo or 6) + 1) % 24
+        Settings.save(settings)
+      end },
+    { kind = "sep" },
+    { kind = "row", title = "Always silent while screen sharing", tone = "faded" },
+    { kind = "sep" },
+    backRow(),
+  }
+  return rows
 end
 
-local function projectMenu()
+local function awayPage()
+  local current = settings.awayAfter or 0
+  return {
+    { kind = "label", title = "When you're not here" },
+    { kind = "toggle", title = "Hold notes until I'm back", on = settings.catchUp,
+      note = "one summary instead of a stack of stale ones",
+      act = function() Settings.toggle(settings, "catchUp") end },
+    { kind = "sep" },
+    { kind = "label", title = "Away means" },
+    { kind = "choice", title = AWAY_LABEL[0], on = current == 0,
+      note = "exact — the screen is off, you're definitely not reading",
+      act = function() M.setAway(0) end },
+    { kind = "choice", title = AWAY_LABEL[900], on = current == 900,
+      act = function() M.setAway(900) end },
+    { kind = "choice", title = AWAY_LABEL[1800], on = current == 1800,
+      note = "a guess — watching a long turn looks like idling",
+      act = function() M.setAway(1800) end },
+    { kind = "sep" },
+    backRow(),
+  }
+end
+
+local function projectsPage()
   local seen, folders = {}, {}
   for _, row in ipairs(ledger:recent(40)) do
     if row.folder and row.folder ~= "" and not seen[row.folder] then
@@ -585,108 +724,137 @@ local function projectMenu()
   end
   table.sort(folders)
 
-  local items = {}
+  local rows = { { kind = "label", title = "Mute a noisy project" } }
+  if #folders == 0 then
+    rows[#rows + 1] = { kind = "row", title = "No projects yet", tone = "faded" }
+  end
   for _, folder in ipairs(folders) do
     local rule = Settings.project(settings, folder)
-    items[#items + 1] = {
-      title = folder,
-      checked = rule.mute == true,
-      fn = function()
-        -- `false` clears the rule; see Settings.setProject.
-        Settings.setProject(settings, folder, { mute = not rule.mute })
+    rows[#rows + 1] = {
+      kind = "toggle", title = folder, on = rule.mute == true,
+      -- `false` clears the rule; see Settings.setProject.
+      act = function() Settings.setProject(settings, folder, { mute = not rule.mute }) end,
+    }
+  end
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = backRow()
+  return rows
+end
+
+--- Which moods the chosen coat actually has a drawing for.
+local function wardrobePage()
+  local has = {}
+  for _, mood in ipairs(Coats.moods(settings.coat, Mood.order)) do has[mood] = true end
+
+  local rows = {
+    { kind = "label", title = "Drawings for " .. Coats.label(settings.coat) },
+  }
+  for _, mood in ipairs(Mood.order) do
+    local art = Mood.art(mood)
+    rows[#rows + 1] = {
+      kind = "row", title = Mood.get(mood).label,
+      value = has[art] and "own art" or "default",
+      tone = has[art] and "settled" or nil,
+    }
+  end
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = {
+    kind = "row", title = "Add drawings…",
+    note = "name them " .. (settings.coat or "foxbot") .. "-sleeping.png, and so on",
+    act = function() Coats.reveal() end,
+  }
+  rows[#rows + 1] = backRow()
+  return rows
+end
+
+local function coatPage()
+  local rows = { { kind = "label", title = "Sprite" } }
+  for _, coat in ipairs(Coats.all(Mood.order)) do
+    rows[#rows + 1] = {
+      kind = "choice", title = coat.label,
+      on = (settings.coat or Coats.default) == coat.id,
+      act = function()
+        settings.coat = coat.id
+        Settings.save(settings)
+        hs.reload()          -- the sprite set is loaded once, at start
       end,
     }
   end
-  if #items == 0 then items[1] = { title = "no projects yet", disabled = true } end
-  return items
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = { kind = "into", title = "Moods with their own art",
+                      value = #Coats.moods(settings.coat, Mood.order) .. "/" .. #Mood.order,
+                      page = wardrobePage }
+  rows[#rows + 1] = { kind = "row", title = "Add your own…",
+                      act = function() Coats.reveal() end }
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = backRow()
+  return rows
 end
 
-local function hushMenu()
+--- The page you land on.
+function home()
   return {
-    { title = "Quiet hours", checked = settings.hush,
-      fn = function() Settings.toggle(settings, "hush") end },
-    { title = "   from " .. string.format("%02d:00", settings.hushFrom or 22),
-      fn = function()
-        settings.hushFrom = ((settings.hushFrom or 22) + 1) % 24
-        Settings.save(settings)
-      end },
-    { title = "   until " .. string.format("%02d:00", settings.hushTo or 8),
-      fn = function()
-        settings.hushTo = ((settings.hushTo or 8) + 1) % 24
-        Settings.save(settings)
-      end },
-    { title = "   silence only, still show notes", checked = settings.hushSoftly,
-      fn = function() Settings.toggle(settings, "hushSoftly") end },
-    { title = "-" },
-    { title = "Also silent while screen sharing", disabled = true },
+    statusRow(),
+    { kind = "sep" },
+    statsRow(),
+    { kind = "sep" },
+
+    { kind = "into", title = "Sessions", page = runningPage,
+      value = sessions:count() > 0 and tostring(sessions:count()) or nil },
+    { kind = "into", title = "Today", page = reportPage },
+    { kind = "into", title = "Recent", page = recentPage },
+    { kind = "sep" },
+
+    { kind = "label", title = "Interruptions" },
+    { kind = "toggle", title = "Live progress notes", on = settings.notes,
+      note = "one every 2 min at most, four a turn",
+      act = function() Settings.toggle(settings, "notes") end },
+    { kind = "toggle", title = "Chase unanswered questions", on = settings.remind,
+      note = "again at 1m, 5m, 15m",
+      act = function() Settings.toggle(settings, "remind") end },
+    { kind = "toggle", title = "Note when a turn starts", on = settings.noteStarts,
+      act = function() Settings.toggle(settings, "noteStarts") end },
+    { kind = "toggle", title = "Mute everything", on = settings.quiet,
+      act = function() Settings.toggle(settings, "quiet") end },
+    { kind = "into", title = "Quiet hours", page = hushPage,
+      value = settings.hush and Hush.window(settings) or "off" },
+    { kind = "into", title = "When you're away", page = awayPage,
+      value = AWAY_LABEL[settings.awayAfter or 0] },
+    { kind = "into", title = "Per project", page = projectsPage },
+    { kind = "sep" },
+
+    { kind = "label", title = "Appearance" },
+    { kind = "into", title = "Voice", page = voicePage,
+      value = Voice.get(settings.voice).label },
+    { kind = "into", title = "Detail", page = detailPage,
+      value = (settings.detail or "brief") },
+    { kind = "into", title = "Sounds", page = soundsPage },
+    { kind = "into", title = "Sprite", page = coatPage,
+      value = Coats.label(settings.coat) },
+    { kind = "row", title = "Colours", value = Palette.label(Palette.skin),
+      act = function() M.nextSkin() end },
+    { kind = "sep" },
+
+    { kind = "row", title = fox:hidden() and "Show foxbot" or "Hide foxbot",
+      keys = "⌃⌥⌘F", act = function() M.toggle() end },
+    { kind = "row", title = "Show me a note", act = function() M.demo() end },
+    { kind = "row", title = "Show me a question", act = function() M.demoAsk() end },
+    { kind = "row", title = "Reload", act = function() hs.reload() end },
+    { kind = "row", title = "Quit foxbot", tone = "broken",
+      act = function() hs.application.get("Hammerspoon"):kill() end },
   }
 end
 
-local function awayMenu()
-  return {
-    { title = "Hold notes while I'm away", checked = settings.catchUp,
-      fn = function() Settings.toggle(settings, "catchUp") end },
-    { title = "-" },
-    { title = "Away means…", disabled = true },
-    { title = "   " .. AWAY_LABEL[0], checked = (settings.awayAfter or 0) == 0,
-      fn = function() M.setAway(0) end },
-    { title = "   " .. AWAY_LABEL[900], checked = settings.awayAfter == 900,
-      fn = function() M.setAway(900) end },
-    { title = "   " .. AWAY_LABEL[1800], checked = settings.awayAfter == 1800,
-      fn = function() M.setAway(1800) end },
-  }
+--- Open the panel wherever it was asked for.
+function M.openMenu(at)
+  if panel then panel:anchorTo(fox:frame(), fox:screen()) end
+  if board:isOpen() then board:close() return end
+  board:open(home(), at or hs.mouse.absolutePosition(), fox:screen())
+  board:showing(home)
 end
 
---- The one menu, used by the menu bar item and by clicking the fox.
-local function menu()
-  local live, blocked = sessions:count(), sessions:waitingCount()
-
-  local headline = "Nothing running"
-  if blocked > 0 then
-    headline = blocked .. (blocked == 1 and " waiting on you" or " waiting on you")
-  elseif live > 0 then
-    headline = live .. (live == 1 and " session running" or " sessions running")
-  end
-
-  return {
-    { title = headline, menu = runningMenu() },
-    { title = "Today  ⌃⌥⌘T", menu = reportMenu() },
-    { title = "Recent sessions", menu = recentMenu() },
-    { title = "-" },
-
-    { title = fox:hidden() and "Show foxbot  ⌃⌥⌘F" or "Hide foxbot  ⌃⌥⌘F",
-      fn = function() M.toggle() end },
-    { title = "Mute everything", checked = settings.quiet,
-      fn = function() Settings.toggle(settings, "quiet") end },
-    { title = "Live progress notes", checked = settings.notes,
-      fn = function() Settings.toggle(settings, "notes") end },
-    { title = "Remind me about questions", checked = settings.remind,
-      fn = function() Settings.toggle(settings, "remind") end },
-    { title = "Show a note when a turn starts", checked = settings.noteStarts,
-      fn = function() Settings.toggle(settings, "noteStarts") end },
-    { title = "-" },
-
-    { title = "Voice   " .. Voice.get(settings.voice).label, menu = voiceMenu() },
-    { title = "Detail   " .. (settings.detail or "brief"), menu = detailMenu() },
-    { title = "Sounds", menu = chimeMenu() },
-    { title = "Quiet hours   " .. (settings.hush and Hush.window(settings) or "off"),
-      menu = hushMenu() },
-    { title = "When I'm away", menu = awayMenu() },
-    { title = "Per project", menu = projectMenu() },
-    { title = "Colours   " .. Palette.label(Palette.skin),
-      fn = function() M.nextSkin() end },
-    { title = "Sprite   " .. Coats.label(settings.coat), menu = coatMenu() },
-    { title = "-" },
-
-    { title = "Show me a note", fn = function() M.demo() end },
-    { title = "Show me a question", fn = function() M.demoAsk() end },
-    { title = "Reload", fn = function() hs.reload() end },
-    { title = "Quit foxbot", fn = function() hs.application.get("Hammerspoon"):kill() end },
-  }
-end
-
---- The menu bar title carries the live count so status is readable even with
---- the fox hidden. Something blocked on you outranks something merely running.
+--- The menu bar carries the live count, so status is readable with the fox
+--- hidden. Something blocked on you outranks something merely running.
 function M.paintBar()
   if not bar then return end
   local live, blocked = sessions:count(), sessions:waitingCount()
@@ -699,7 +867,7 @@ function M.paintBar()
     bar:setTooltip(live .. " running")
   else
     bar:setTitle("")
-    bar:setTooltip("Foxbot — nothing running")
+    bar:setTooltip("Foxbot — " .. Mood.get(restingMood()).label:lower())
   end
 end
 
@@ -725,7 +893,7 @@ function M.setAway(seconds)
 end
 
 function M.showReport()
-  if bar then bar:popupMenu(hs.mouse.absolutePosition()) end
+  M.openMenu({ x = fox.x, y = fox.y })
 end
 
 function M.state()
@@ -812,9 +980,7 @@ local function start()
 
   fox = Sprite.new({
     settings = settings,
-    onTap = function()
-      if bar then bar:popupMenu(hs.mouse.absolutePosition()) end
-    end,
+    onTap = function() M.openMenu() end,
     onMoved = function()
       Settings.save(settings)
       panel:anchorTo(fox:frame(), fox:screen())
@@ -824,13 +990,14 @@ local function start()
 
   fox.onFrame = function() fox:settle(restingMood) end
 
+  board = Board.new()
   panel = Panel.new()
   panel:anchorTo(fox:frame(), fox:screen())
 
   bar = hs.menubar.new()
   local icon = hs.image.imageFromPath(Coats.path(settings.coat))
   if icon then bar:setIcon(icon:setSize({ w = 20, h = 16 }), false) end
-  bar:setMenu(menu)
+  bar:setClickCallback(function() M.openMenu() end)
   M.paintBar()
 
   away = Away.new({ threshold = settings.awayAfter, onReturn = catchUp })

@@ -55,8 +55,43 @@ def snap(image):
     return out
 
 
+def key_out(image, tolerance=60):
+    """Drop a flat background from an image that has no transparency at all.
+
+    Generators routinely ignore "transparent background" and hand back a solid
+    white or magenta one instead. If all four corners agree on a colour, that's
+    the background; anything close enough to it goes.
+    """
+    pixels = image.load()
+    w, h = image.size
+    corners = [pixels[0, 0], pixels[w - 1, 0], pixels[0, h - 1], pixels[w - 1, h - 1]]
+
+    first = corners[0][:3]
+    for corner in corners[1:]:
+        if sum((a - b) ** 2 for a, b in zip(corner[:3], first)) > tolerance ** 2:
+            return image, None          # corners disagree; not a flat backdrop
+
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            if sum((c - d) ** 2 for c, d in zip((r, g, b), first)) <= tolerance ** 2:
+                pixels[x, y] = (0, 0, 0, 0)
+    return image, first
+
+
 def convert(path, width=TARGET_WIDTH, cutoff=140):
     image = Image.open(path).convert("RGBA")
+
+    # No transparency at all means the background was painted rather than left
+    # out. Key it before anything else.
+    keyed = None
+    if image.getchannel("A").getextrema()[0] == 255:
+        image, keyed = key_out(image)
+        if keyed:
+            print("  keyed out a flat #%02X%02X%02X background" % keyed)
+        else:
+            print("  ! no transparency and no flat background to remove —"
+                  " the result will be a rectangle")
 
     # A keyed-out background leaves a soft fringe. Anything not solidly opaque
     # is fringe, not artwork.
