@@ -139,7 +139,20 @@ the ambient states only get a look in when nothing is happening.
 Each mood can have **its own drawing** (`foxbot-sleeping.png` and so on). Any
 you haven't drawn fall back to the default and express themselves through the
 badge and how he moves instead, so a half-finished set still works.
-**[How to draw the rest →](docs/SPRITES.md)**
+**[One prompt that draws all nine →](docs/SHEET-PROMPT.md)** — paste it into
+ChatGPT with his current sprite attached, and you get back a 3×3 sheet:
+
+```bash
+python3 tools/slice_sheet.py ~/Downloads/sheet.png
+```
+
+That cuts the sheet into the nine files. It finds the poses by looking for the
+empty gutters between them rather than assuming exact thirds, because image
+models never lay a grid out evenly — and anything floating beside a pose, a
+"z" or a question mark, stays with it.
+
+(If you'd rather do them one at a time, [the individual prompts are
+here](docs/SPRITES.md).)
 
 ## The control panel
 
