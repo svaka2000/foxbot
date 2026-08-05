@@ -252,13 +252,25 @@ Drop any PNG into `~/.hammerspoon/foxbot/assets/` and pick it under **Sprite**.
 Aspect ratio is kept, so a tall drawing stays tall, and deleting the one you
 were using falls back to the bundled fox rather than leaving a hole.
 
-The bundled fox is authored as a pixel grid in
-[`tools/draw_fox.py`](tools/draw_fox.py) rather than painted in an editor — so
-he's diffable, editable a pixel at a time, and comes out with real transparency
-and an exact palette every time.
+If your image came out of an image generator, run it through the importer
+first:
 
 ```bash
-python3 tools/draw_fox.py
+python3 tools/import_sprite.py ~/Downloads/my-fox.png --name my-fox
+```
+
+Generators hand back "pixel art" that isn't — rendered at high resolution with
+soft anti-aliased edges and tens of thousands of colours, plus a faint halo
+where the background was keyed out. At 96 points that reads as mush. The
+importer crops to the artwork, discards the halo, snaps every pixel to a small
+palette, and writes it at twice the display size so it stays sharp on a Retina
+screen. The bundled fox goes from 65,984 colours to 8.
+
+There's also a fox authored as a pixel grid in code, if you'd rather edit one a
+pixel at a time than draw it:
+
+```bash
+python3 tools/draw_fox.py     # writes assets/classic.png
 ```
 
 ## Tests

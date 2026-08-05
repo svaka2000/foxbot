@@ -35,7 +35,7 @@ jobs:
 
       - name: Python syntax
         run: |
-          python3 -m py_compile bin/foxbot tools/draw_fox.py
+          python3 -m py_compile bin/foxbot tools/draw_fox.py tools/import_sprite.py
           # The hook's logic lives in a heredoc; compile it on its own.
           sed -n '/^FOXBOT_KIND=.*<<.PY.$/,/^PY$/p' hooks/foxbot.sh | sed '1d;$d' > /tmp/hook.py
           python3 -m py_compile /tmp/hook.py

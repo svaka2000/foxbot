@@ -85,7 +85,7 @@ def main():
     args = parser.parse_args()
 
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    out = args.out or os.path.join(here, "hammerspoon", "foxbot", "assets", "foxbot.png")
+    out = args.out or os.path.join(here, "hammerspoon", "foxbot", "assets", "classic.png")
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
     image = draw(args.scale)
