@@ -328,14 +328,6 @@ after 30 minutes.
 **Nothing happens.** `grep foxbot ~/.claude/settings.json`, then
 `tail -f ~/.claude/foxbot/inbox.jsonl`.
 
-## Where the idea came from
-
-The idea of a desktop pet driven by Claude Code's hooks comes from
-[mattypark/claudeaiagentreminderguy](https://github.com/mattypark/claudeaiagentreminderguy).
-Foxbot is a separate implementation written from scratch — no code, artwork or
-text is carried across — but it wouldn't exist without having seen that first,
-and it's only fair to say so.
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
