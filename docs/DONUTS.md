@@ -3,8 +3,9 @@
 A currency the fox earns while you work, spent on things that change how he
 looks and nothing else.
 
-Not built yet. This is the design, settled before any code so the shape doesn't
-have to be undone later.
+**Built.** `wallet.lua` earns and holds, `shop.lua` is the shelf, and the shop
+lives behind *the stats strip → Shop*. This document is the design it was built
+from; where the two could drift, `tests/wallet.lua` is the arbiter.
 
 ---
 
@@ -86,7 +87,12 @@ the whole shop is several months of use.
 
 ### Sprites — a different animal entirely
 
-Each needs a full ten-mood set, so these are the expensive tier.
+Each needs a full ten-mood set, so these are the expensive tier — and each is
+**only on the shelf once its drawing exists**. A shop listing something it
+cannot hand over is worse than a shop with four things in it, so the aisle
+reads whatever is in `assets/` and stocks itself. Import a sheet with
+`tools/slice_sheet.py` (prompts in [SHOP-SPRITES.md](SHOP-SPRITES.md)) and the
+animal appears by itself, at the price below.
 
 | item | price | what it is |
 |---|---|---|
@@ -178,13 +184,30 @@ machine that was asleep at midnight.
 
 ## Where it shows
 
-- The stats strip on the home page gains a fourth figure: the balance.
+- The stats strip gains a fourth figure, the balance — but only once you have
+  earned something. A "donuts: 0" on a fresh install is an advertisement for a
+  feature, not a statistic.
 - **The den** gains a `Shop` row, showing the balance as its value.
-- The shop is one page per category, each row an item with its price, greyed
-  when it can't be afforded, ticked when owned.
-- Earning is silent by default. A note saying "you got 4 donuts" after every
-  turn is precisely the sort of thing this project spent a week removing.
-  At most one donut note a day, opt-in.
+- The shop is one page per aisle, each row an item with its price, greyed when
+  it can't be afforded and marked `owned` when it is. Prices show on everything,
+  including what you can't afford yet: a shop that hides the price until you can
+  pay it has something to hide.
+- Buying equips immediately rather than filling an inventory. What you spent
+  three days earning should be visible the instant you pay for it.
+- Earning is silent. A note saying "you got 4 donuts" after every turn is
+  precisely the sort of thing this project spent a week removing.
+
+## What is actually on the shelf today
+
+Everything that needs no drawing: four palettes, three sound packs, and a
+nameplate. That is deliberate, not a shortfall — see the sprites note above.
+
+| aisle | in stock now |
+|---|---|
+| Palettes | Terminal, Blueprint, Sakura, Midnight |
+| Sound packs | Woodland, Arcade, Library |
+| Animals | whatever is in `assets/` |
+| Odds and ends | a nameplate |
 
 ## What needs drawing
 

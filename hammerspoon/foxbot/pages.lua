@@ -93,6 +93,12 @@ function Pages:statsRow(tappable)
       { label = "tokens", value = c.Stats.tokens(today.tokens + today.subTokens) or "—" },
     },
   }
+  -- Only once there is something to show. A "donuts: 0" on a fresh install is
+  -- an advertisement for a feature, not a statistic.
+  local purse = c.wallet and c.wallet()
+  if purse and (purse.earnedTotal or 0) > 0 then
+    row.items[#row.items + 1] = { label = "donuts", value = tostring(purse.balance) }
+  end
   if tappable then row.page = function() return self:den() end end
   return row
 end
@@ -121,7 +127,7 @@ function Pages:home()
     { kind = "into", title = "Settings", page = function() return self:settings() end },
     sep(),
     { kind = "row",
-      title = c.fox:hidden() and "Show foxbot" or "Hide foxbot",
+      title = (c.fox:hidden() and "Show " or "Hide ") .. (c.name and c.name() or "foxbot"),
       keys = "⌃⌥⌘F", act = c.act.toggleFox },
   }
 
@@ -258,6 +264,98 @@ function Pages:den()
                         value = streak .. " days" }
   end
 
+  local purse = c.wallet and c.wallet()
+  if purse then
+    rows[#rows + 1] = sep()
+    rows[#rows + 1] = { kind = "into", title = "Shop",
+      value = purse.balance .. " donuts",
+      page = function() return self:shop() end }
+  end
+
+  rows[#rows + 1] = sep()
+  rows[#rows + 1] = back()
+  return rows
+end
+
+--- The shop. One page of aisles, one page per aisle.
+---
+--- Prices are shown on everything, including what you can't afford yet — a
+--- shop that hides the price until you can pay it is a shop that has something
+--- to hide. Owned items say so and stop being buyable.
+function Pages:shop()
+  local c = self.ctx
+  local purse = c.wallet()
+  local rows = {
+    { kind = "label", title = "Donuts" },
+    { kind = "row", title = "You have", value = tostring(purse.balance),
+      tone = "settled" },
+    { kind = "row", title = "Earned in total", value = tostring(purse.earnedTotal),
+      tone = "faded" },
+    sep(),
+  }
+
+  for _, aisle in ipairs(c.shopAisles()) do
+    local owned = 0
+    for _, item in ipairs(aisle.items) do
+      if purse:owns(item.id) then owned = owned + 1 end
+    end
+    if #aisle.items > 0 then
+      rows[#rows + 1] = { kind = "into", title = aisle.label,
+        value = owned .. "/" .. #aisle.items,
+        page = function() return self:aisle(aisle.id) end }
+    end
+  end
+
+  -- Rather than listing animals nobody can buy, say why the aisle is thin.
+  -- The prompts for making one are shipped; this points at them.
+  local hasAnimals = false
+  for _, aisle in ipairs(c.shopAisles()) do
+    if aisle.id == "sprites" and #aisle.items > 0 then hasAnimals = true end
+  end
+  if not hasAnimals then
+    rows[#rows + 1] = { kind = "row", tone = "faded", title = "Animals",
+      note = "drop a sheet in assets/ and they stock themselves" }
+  end
+
+  rows[#rows + 1] = sep()
+  rows[#rows + 1] = { kind = "row", tone = "faded",
+    title = "Earned by working, capped daily",
+    note = "turns, not tokens — see docs/DONUTS.md" }
+  rows[#rows + 1] = sep()
+  rows[#rows + 1] = back()
+  return rows
+end
+
+function Pages:aisle(id)
+  local c = self.ctx
+  local purse = c.wallet()
+
+  local shelf = nil
+  for _, aisle in ipairs(c.shopAisles()) do
+    if aisle.id == id then shelf = aisle end
+  end
+  if not shelf then return { { kind = "label", title = "Nothing here" }, back() } end
+
+  local rows = { { kind = "label", title = shelf.label } }
+  for _, item in ipairs(shelf.items) do
+    local owned = purse:owns(item.id)
+    local afford = purse:canAfford(item.price)
+    rows[#rows + 1] = {
+      kind = "row",
+      title = item.label,
+      note = item.note,
+      value = owned and "owned" or (item.price .. " ◉"),
+      -- Greyed when you can't have it yet, so the difference between "bought"
+      -- and "can't afford" is visible without reading the numbers.
+      tone = owned and "settled" or (not afford and "faded" or nil),
+      act = (not owned and afford)
+            and function() c.act.buy(item.id) end or nil,
+    }
+  end
+
+  rows[#rows + 1] = sep()
+  rows[#rows + 1] = { kind = "row", tone = "faded",
+                      title = "You have " .. purse.balance .. " ◉" }
   rows[#rows + 1] = sep()
   rows[#rows + 1] = back()
   return rows
@@ -350,7 +448,8 @@ function Pages:settings()
 
     { kind = "label", title = "Foxbot" },
     { kind = "into", title = "About & help", page = function() return self:about() end },
-    { kind = "row", title = "Quit foxbot", tone = "broken", act = c.act.quit },
+    { kind = "row", title = "Quit " .. (c.name and c.name() or "foxbot"),
+      tone = "broken", act = c.act.quit },
     sep(),
     back(),
   }

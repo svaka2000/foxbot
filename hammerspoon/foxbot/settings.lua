@@ -108,6 +108,9 @@ local SCHEMA = {
   -- it is the one thing here that leaves the machine. See remote.lua.
   fresh       = false,
 
+  -- What he's called. Bought from the shop; "" means Foxbot.
+  nickname    = "",
+
   perProject  = {},          -- folder -> { mute = true, voice = "..." }
   keepDays    = 30,
 }

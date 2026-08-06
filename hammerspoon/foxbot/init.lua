@@ -30,6 +30,8 @@ local Timer    = require("foxbot.timer")
 local Lore     = require("foxbot.lore")
 local Drift    = require("foxbot.drift")
 local Remote   = require("foxbot.remote")
+local Wallet   = require("foxbot.wallet")
+local Shop     = require("foxbot.shop")
 
 local M = {}
 
@@ -37,6 +39,7 @@ local HOME = os.getenv("HOME")
 local DEN = HOME .. "/.claude/foxbot"
 local INBOX = DEN .. "/inbox.jsonl"
 local LEDGER = DEN .. "/ledger.jsonl"
+local WALLET = DEN .. "/wallet.json"
 
 local REPEAT_GUARD = 5      -- seconds; ignore an identical event twice over
 local RECALL = 12           -- how many sessions the menu remembers
@@ -92,7 +95,7 @@ local AWAY_STEPS = { 0, 900, 1800 }
 local AWAY_LABEL = { [0] = "locked or asleep", [900] = "15 min idle", [1800] = "30 min idle" }
 
 local settings, fox, panel, board, bar, watcher, keys, teach, clock
-local lore, drift
+local lore, drift, purse
 local sessions, ledger, away
 local readTo = 0
 local lastSeen = {}
@@ -348,6 +351,86 @@ local function chase(row)
   })
 end
 
+function M.setSkin(id)
+  settings.skin = Palette.use(id)
+  Settings.save(settings)
+  panel:clear()
+  if fox then fox:paintBadge() end
+end
+
+function M.setCoat(id)
+  settings.coat = id
+  Settings.save(settings)
+  -- The sprite set is loaded once at start, so this needs a reload. Delayed a
+  -- moment so that whatever note said "yours" is actually readable first.
+  hs.timer.doAfter(2.5, function() hs.reload() end)
+end
+
+--- What he's called. Bought from the shop; until then he's Foxbot.
+function M.name()
+  local given = settings.nickname
+  return (given and given ~= "") and given or "foxbot"
+end
+
+function M.rename()
+  local ok, given = pcall(function()
+    local _, text = hs.dialog.textPrompt(
+      "What should he be called?",
+      "It shows up wherever his name does.",
+      M.name(), "Save", "Cancel")
+    return text
+  end)
+  if not ok then return end
+
+  given = (given or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  -- A blank name would leave rows reading "Hide ". Empty means "back to
+  -- Foxbot" rather than "no name".
+  settings.nickname = (given ~= "" and #given <= 24) and given or ""
+  Settings.save(settings)
+end
+
+--- Buy something from the shop, and put it on straight away.
+---
+--- Equipping immediately rather than leaving it in an inventory is deliberate:
+--- the thing you just spent three days earning should be visible the instant
+--- you pay for it, not two menus later.
+function M.buy(id)
+  if not purse then return end
+
+  local item = Shop.find(id, (function()
+    local have = {}
+    for _, coat in ipairs(Coats.all(Mood.order)) do have[coat.id] = true end
+    return have
+  end)())
+  if not item then return end
+
+  local bought = purse:buy(id, item.price)
+  if not bought then return end
+
+  Shop.equip(id, {
+    palette = function(name) M.setSkin(name) end,
+    sounds = function(map)
+      local chimes = settings.chimes or {}
+      for kind, sound in pairs(map) do chimes[kind] = sound end
+      settings.chimes = chimes
+      Settings.save(settings)
+    end,
+    coat = function(name) M.setCoat(name) end,
+    rename = function() M.rename() end,
+  })
+
+  fox:feel("pleased", restingMood())
+  fox:startle()
+  panel:anchorTo(fox:frame(), fox:screen())
+  panel:say({
+    title = item.label,
+    body = "Yours. " .. purse.balance .. " donuts left.",
+    instant = true,
+    hold = 12,
+  })
+  M.paintBar()
+end
+
 --- Show one thing he knows.
 local function tellNote(item, volunteered)
   local silence, show = Hush.check(settings)
@@ -520,6 +603,9 @@ local function handle(event)
   end
 
   local elapsed
+  -- Read before finish() clears the waiting row: the quick-answer bonus needs
+  -- to know when he *started* waiting, and finishing the turn forgets it.
+  local askedAt = sessions:askedAt(keyOf(event))
   if kind == "done" or kind == "end" or kind == "error" then
     elapsed = sessions:finish(event)
   end
@@ -543,6 +629,16 @@ local function handle(event)
       context = event.context or 0,
       model = event.model,
     })
+
+    -- Donuts. Only for a turn that finished -- an error is not work you get
+    -- paid for, and paying for one would reward leaving something broken.
+    if purse and kind == "done" then
+      purse:credit({
+        tokens = (event.tokens or 0) + (event.subTokens or 0),
+        at = event.ts or now,
+        askedAt = askedAt,
+      }, Stats.startOfDay())
+    end
   end
 
   refeel(kind)
@@ -598,6 +694,16 @@ local function buildPages()
     frontApp = function() return drift and drift.app or nil end,
     isBreak = function(app) return drift and drift:isBreak(app) or false end,
 
+    wallet = function() return purse end,
+    name = function() return M.name() end,
+    shopAisles = function()
+      local have = {}
+      for _, coat in ipairs(Coats.all(Mood.order)) do
+        have[coat.id] = true
+      end
+      return Shop.aisles(have)
+    end,
+
     remote = function()
       local folder = (recent[1] or {}).cwd
       return { ready = Remote.available(),
@@ -625,6 +731,7 @@ local function buildPages()
         if drift then drift:mark(app, not drift:isBreak(app)) end
       end,
       tellMe = function() M.tellMe(false) end,
+      buy = function(id) M.buy(id) end,
       startFocus = function(kind)
         clock:start(kind)
         M.paintBar()
@@ -638,12 +745,7 @@ local function buildPages()
         settings.chatty = id
         Settings.save(settings)
       end,
-      setSkin = function(id)
-        settings.skin = Palette.use(id)
-        Settings.save(settings)
-        panel:clear()
-        if fox then fox:paintBadge() end
-      end,
+      setSkin = function(id) M.setSkin(id) end,
       setVoice = function(name)
         settings.voice = name
         Settings.save(settings)
@@ -661,11 +763,7 @@ local function buildPages()
         Settings.save(settings)
         Chime.play(id)
       end,
-      setCoat = function(id)
-        settings.coat = id
-        Settings.save(settings)
-        hs.reload()          -- the sprite set is loaded once, at start
-      end,
+      setCoat = function(id) M.setCoat(id) end,
       muteProject = function(folder, on)
         -- `false` clears the rule; see Settings.setProject.
         Settings.setProject(settings, folder, { mute = on })
@@ -897,6 +995,11 @@ local function start()
       })
       M.paintBar()
 
+      -- The one behaviour worth paying for outright.
+      if purse and ended == Timer.WORK then
+        purse:finishedFocus(Stats.startOfDay())
+      end
+
       -- The end of a work block is the one moment in the day he's certain you
       -- are stopping anyway, which makes it the only place worth volunteering
       -- something unprompted. Once a day, and never during the block itself.
@@ -943,6 +1046,11 @@ local function start()
   M.paintBar()
 
   away = Away.new({ threshold = settings.awayAfter, onReturn = catchUp })
+
+  purse = Wallet.new(WALLET):load()
+  -- A bought palette has to still be in the list after a restart. Buying
+  -- grants it; this is what makes it stick.
+  Shop.restore(purse.owned)
 
   lore = Lore.new({
     settings = settings,

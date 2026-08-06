@@ -89,6 +89,16 @@ function Sessions:wait(event)
   }
 end
 
+--- When this session first became blocked on you, or nil.
+---
+--- Read before `finish` clears the row: the donut bonus is for answering
+--- quickly, and by the time the turn has finished there is nothing left to
+--- measure the gap against.
+function Sessions:askedAt(id)
+  local row = self.waiting[id]
+  return row and row.since or nil
+end
+
 --- You dealt with it (or the session moved on by itself).
 function Sessions:answered(event)
   local id = type(event) == "table" and key(event) or event

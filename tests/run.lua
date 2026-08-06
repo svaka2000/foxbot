@@ -609,5 +609,6 @@ require("tests.pages")
 require("tests.teach")
 require("tests.lore")
 require("tests.remote")
+require("tests.wallet")
 
 os.exit(t.report() and 0 or 1)

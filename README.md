@@ -112,6 +112,7 @@ the bottom to open the folder, open it in your editor, or copy the summary.
 | **Teaches you things** | ~60 shipped tips, never repeating until you've seen them all |
 | **Shows you around** | a five-step tour the first time, then never again |
 | **Today / this week** | turns, time, tokens, per-project, streaks |
+| **Donuts** | earned by working, spent on how he looks — never on what he does |
 | **Any terminal** | iTerm, Ghostty, WezTerm, Warp, kitty, Alacritty, VS Code, Cursor, Zed |
 | **Quiet hours** | plus automatic silence while you're screen sharing |
 | **Catch-up** | one summary when you come back, not eleven stale notes |
@@ -255,6 +256,30 @@ thing before moving on.
 
 It gives up gracefully. If you ignore it, it tries at most three launches and
 then stops for good rather than greeting you forever.
+
+## Donuts
+
+He earns them while you work, and they buy things that change how he looks and
+nothing else.
+
+The obvious rule — more tokens, more donuts — is the wrong one, because it pays
+you to burn tokens, which is the one behaviour a tool like this must never
+encourage. So the unit is the **turn**: at least one donut however small, plus
+one per 8k output tokens, and **the token part stops counting at 40k**. Past
+that a bigger turn earns nothing extra, so five tight turns beat one bloated
+one. Sixty a day maximum, so leaving something running overnight is worth
+nothing. Bonuses for showing up, finishing a focus block, and answering a
+blocked question quickly.
+
+**Cosmetics only. Never behaviour.** Nothing in the shop changes what he does —
+no note you'd otherwise not get, no stat you can't otherwise see, no setting
+held back. Putting function behind a grind turns a tool into a game that
+occasionally helps you work.
+
+On the shelf: four palettes, three sound packs, a nameplate. Animals stock
+themselves — drop a sprite sheet in `assets/` and the shop offers it, because a
+shop listing something it can't hand over is worse than a small one. The
+reasoning in full, and the prices, are in [docs/DONUTS.md](docs/DONUTS.md).
 
 ## He won't let you miss a question
 

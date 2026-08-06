@@ -70,6 +70,17 @@ local function crowded(overrides)
     frontApp = function() return "Discord" end,
     isBreak = function() return true end,
     remote = function() return { ready = false, sends = "nothing" } end,
+    name = function() return "foxbot" end,
+    wallet = function()
+      local Wallet = require("foxbot.wallet")
+      local w = Wallet.new("/tmp/foxbot-pages-wallet.json")
+      w.balance, w.earnedTotal = 260, 1200
+      w.save = function() end
+      return w
+    end,
+    shopAisles = function()
+      return require("foxbot.shop").aisles({ tabby = true, crow = true })
+    end,
 
     Settings = Settings,
     Sessions = Sessions,
@@ -130,6 +141,7 @@ local PAGES = {
   { "focus", Pages.MAX_PAGE },
   { "attention", Pages.MAX_PAGE },
   { "notes", Pages.MAX_PAGE },
+  { "shop", Pages.MAX_PAGE },
 }
 
 local tall = {}
@@ -174,7 +186,7 @@ end
 check("every row is well formed", #bad, 0)
 if #bad > 0 then for _, s in ipairs(bad) do print("     " .. s) end end
 ok("the segment control is used", (kinds.segment or 0) >= 1)
-ok("every page can be left", (kinds.back or 0) >= 15)
+ok("every page can be left", (kinds.back or 0) >= 16)
 
 -- ------------------------------------------------------------ list capping
 
@@ -192,6 +204,47 @@ do
     if row.title and row.title:find("more", 1, true) then overflow = true end
   end
   ok("and says how many it hid", overflow)
+end
+
+-- ------------------------------------------------------------- shop aisles
+
+do
+  -- The aisle pages take an argument, so they aren't in the list above — but
+  -- they're the ones that grow, because every animal anyone ever imports lands
+  -- on one. Measured with the whole catalogue in stock.
+  local everything = {}
+  for _, item in ipairs(require("foxbot.shop").everything({})) do
+    local coat = item.id:match("^coat%.(.+)$")
+    if coat then everything[coat] = true end
+  end
+  -- Every animal the shop knows about, whether or not it has art here.
+  for _, coat in ipairs({ "tabby", "corgi", "raccoon", "axolotl", "crow",
+                          "ghost", "arctic", "melanistic", "fennec",
+                          "ninetails" }) do
+    everything[coat] = true
+  end
+
+  local stocked = Pages.new(crowded())
+  stocked.ctx.shopAisles = function()
+    return require("foxbot.shop").aisles(everything)
+  end
+
+  local tall = {}
+  for _, aisle in ipairs(stocked.ctx.shopAisles()) do
+    local rows = stocked:aisle(aisle.id)
+    ok(aisle.id .. " has rows", #rows > 0)
+    local height = Menu.measure(rows)
+    if height > Pages.MAX_PAGE then
+      tall[#tall + 1] = string.format("%s is %dpx", aisle.id, height)
+    end
+  end
+  check("no aisle overflows, even fully stocked", #tall, 0)
+  if #tall > 0 then for _, s in ipairs(tall) do print("     " .. s) end end
+
+  -- An id nobody stocks must not throw — a stale page closure could ask for
+  -- one after the assets folder changed underneath it.
+  local missing = stocked:aisle("no-such-aisle")
+  ok("an unknown aisle is survivable", type(missing) == "table" and #missing > 0)
 end
 
 -- --------------------------------------------------------- the pause ladder

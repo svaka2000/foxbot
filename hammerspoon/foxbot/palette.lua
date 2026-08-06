@@ -87,10 +87,130 @@ local skins = {
     bubbleFaint  = rgb("7C7A82"),
     bubbleGlow   = rgb("8A8288", 0.1),
   },
+
+  -- ------------------------------------------------------------------ locked
+  --
+  -- These are the shop's. They are defined here with the others rather than
+  -- somewhere separate, because a palette that lives in a different file
+  -- inevitably drifts a key behind and renders with a nil colour — and nothing
+  -- says "bought a broken thing" like a note with no text in it.
+
+  terminal = {
+    -- Black and phosphor.
+    label   = "Terminal",
+    panel   = rgb("050A05", 0.97),
+    edge    = rgb("3CE86B", 0.3),
+    ink     = rgb("8FF0A8"),
+    faded   = rgb("4E8A5C"),
+    fur     = rgb("3CE86B"),
+    glow    = rgb("3CE86B", 0.14),
+    hair    = rgb("3CE86B", 0.08),
+    running = rgb("62D8E8"),
+    settled = rgb("3CE86B"),
+    asking  = rgb("E8D23C"),
+    broken  = rgb("E85C4A"),
+    bubbleEdge   = rgb("3CE86B"),
+    bubbleFill   = rgb("06120A"),
+    bubbleShadow = rgb("041006"),
+    bubbleInk    = rgb("A8F5BC"),
+    bubbleFaint  = rgb("5E9C6C"),
+    bubbleGlow   = rgb("3CE86B", 0.16),
+  },
+  blueprint = {
+    -- White on drafting blue.
+    label   = "Blueprint",
+    panel   = rgb("0E3A6B", 0.97),
+    edge    = rgb("FFFFFF", 0.34),
+    ink     = rgb("EAF2FB"),
+    faded   = rgb("9DBAD8"),
+    fur     = rgb("FFFFFF"),
+    glow    = rgb("FFFFFF", 0.14),
+    hair    = rgb("FFFFFF", 0.1),
+    running = rgb("7FD4FF"),
+    settled = rgb("8FE8B4"),
+    asking  = rgb("FFD98A"),
+    broken  = rgb("FF9C8F"),
+    bubbleEdge   = rgb("EAF2FB"),
+    bubbleFill   = rgb("124680"),
+    bubbleShadow = rgb("092B50"),
+    bubbleInk    = rgb("F4F9FF"),
+    bubbleFaint  = rgb("A6C4E2"),
+    bubbleGlow   = rgb("FFFFFF", 0.14),
+  },
+  sakura = {
+    -- Pale pink paper.
+    label   = "Sakura",
+    panel   = rgb("FFF2F5", 0.99),
+    edge    = rgb("D46A88", 0.34),
+    ink     = rgb("4A2A36"),
+    faded   = rgb("A8828E"),
+    fur     = rgb("D46A88"),
+    glow    = rgb("D46A88", 0.14),
+    hair    = rgb("4A2A36", 0.1),
+    running = rgb("6E8FC4"),
+    settled = rgb("6BA87E"),
+    asking  = rgb("C4902E"),
+    broken  = rgb("C4565A"),
+    bubbleEdge   = rgb("D46A88"),
+    bubbleFill   = rgb("FFFAFB"),
+    bubbleShadow = rgb("E0C2CC"),
+    bubbleInk    = rgb("3E2029"),
+    bubbleFaint  = rgb("9C7682"),
+    bubbleGlow   = rgb("D46A88", 0.13),
+  },
+  midnight = {
+    -- Deep blue, low contrast, for late.
+    label   = "Midnight",
+    panel   = rgb("0B1020", 0.97),
+    edge    = rgb("5A6FA8", 0.3),
+    ink     = rgb("C2CCE8"),
+    faded   = rgb("6E7896"),
+    fur     = rgb("7C8FD4"),
+    glow    = rgb("7C8FD4", 0.13),
+    hair    = rgb("FFFFFF", 0.05),
+    running = rgb("6FA8D4"),
+    settled = rgb("6FB48C"),
+    asking  = rgb("C4A45E"),
+    broken  = rgb("C4706E"),
+    bubbleEdge   = rgb("5A6FA8"),
+    bubbleFill   = rgb("141A2E"),
+    bubbleShadow = rgb("080C18"),
+    bubbleInk    = rgb("D2DAF0"),
+    bubbleFaint  = rgb("7A84A2"),
+    bubbleGlow   = rgb("7C8FD4", 0.14),
+  },
 }
 
+-- What the settings page offers. Locked palettes join this once bought, rather
+-- than being listed greyed out — the shop is where you find out they exist, and
+-- a settings page full of things you can't pick is just noise.
 Palette.order = { "dusk", "daylight", "burrow" }
+Palette.LOCKED = { "terminal", "blueprint", "sakura", "midnight" }
 Palette.skin = "dusk"
+
+--- Add a bought palette to the list you can choose from.
+function Palette.unlock(name)
+  if not skins[name] then return false end
+  for _, have in ipairs(Palette.order) do
+    if have == name then return false end
+  end
+  Palette.order[#Palette.order + 1] = name
+  return true
+end
+
+--- Every palette that exists, bought or not — the shop needs to name them.
+function Palette.every()
+  local out = {}
+  for _, name in ipairs(Palette.order) do out[#out + 1] = name end
+  for _, name in ipairs(Palette.LOCKED) do
+    local listed = false
+    for _, have in ipairs(out) do
+      if have == name then listed = true break end
+    end
+    if not listed then out[#out + 1] = name end
+  end
+  return out
+end
 
 function Palette.colours()
   return skins[Palette.skin] or skins.dusk
