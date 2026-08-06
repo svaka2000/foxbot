@@ -19,9 +19,9 @@ local Menu = require("foxbot.menu")
 
 -- ---------------------------------------------------------------- a fake OS
 
---- A canvas that records what was done to it. `isShowing` is deliberately a
---- liar by default: the real one returned true for a canvas that was not on
---- screen, which is why `shown` is tracked separately.
+--- A canvas that records what was done to it. `isShowing` always answers true,
+--- including for one that was never shown -- so these tests pass only if
+--- `shown` is carrying the guarantee, not the canvas's opinion of itself.
 local function fakeCanvas(store)
   local canvas = { shown = false }
   local noop = function() return canvas end
@@ -32,7 +32,7 @@ local function fakeCanvas(store)
       elseif key == "hide" then
         return function(self) self.shown = false end
       elseif key == "isShowing" then
-        return function() return true end          -- the lie
+        return function() return true end   -- always yes, even when never shown
       elseif key == "delete" then
         return function() store.deletes = store.deletes + 1 end
       elseif key == "topLeft" then
@@ -116,8 +116,8 @@ do
   local built = pcall(function() board:open(BAD, POINT, SCREEN) end)
   ok("a page with a hole in it throws", not built)
 
-  -- This is the whole point. The canvas exists, and isShowing() lies and says
-  -- it is on screen — but it was never shown, so this must still say no.
+  -- This is the whole point. The canvas exists, and isShowing() says yes — but
+  -- show() was never reached, so this must still say no.
   ok("the half-built panel is not considered visible", not board:visible())
 
   -- ...which is what lets the next click through. The old code asked isOpen()

@@ -475,10 +475,12 @@ end
 
 --- Actually on screen, as opposed to merely existing.
 ---
---- Deliberately does NOT trust `isShowing()` on its own. It answered true for
---- a canvas that was not on screen, so it is used only as an extra way to say
---- no -- `self.shown`, which we set ourselves once show() has actually been
---- reached, is the part that has to be true.
+--- `self.shown` is the part that has to be true, because it is the only thing
+--- here we set ourselves and only after show() has actually been reached.
+--- `isShowing()` is consulted as an extra way to say *no* and never as the
+--- reason to say yes: it is the canvas reporting on itself, and the failure
+--- being guarded against is precisely the one where the canvas exists and
+--- believes it is fine.
 function Menu:visible()
   if not self.canvas or not self.shown then return false end
   local ok, showing = pcall(function() return self.canvas:isShowing() end)
