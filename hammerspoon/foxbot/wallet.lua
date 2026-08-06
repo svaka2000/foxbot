@@ -140,6 +140,12 @@ function Wallet:earn(amount, startOfDay)
   end
   -- Saved even when nothing was credited: the day may have just rolled over,
   -- and losing that means the ceiling resets again on the next turn.
+  --
+  -- A failed save is deliberately NOT rolled back here, unlike in buy(). Buying
+  -- has a paired side effect -- you own a thing -- so memory and disk have to
+  -- agree or you get the item without the cost. Earning has none: keeping the
+  -- donuts in memory means a full disk costs you them at the next restart
+  -- rather than immediately, and there is nothing to be inconsistent with.
   self:save()
   return given
 end
