@@ -340,17 +340,24 @@ function Pages:aisle(id)
   for _, item in ipairs(shelf.items) do
     local owned = purse:owns(item.id)
     local afford = purse:canAfford(item.price)
-    rows[#rows + 1] = {
-      kind = "row",
+    local buyable = (not owned) and afford
+
+    local row = {
+      -- Into the confirm page, not straight into a purchase. Buying cannot be
+      -- undone and the expensive things are days of work; a single misplaced
+      -- click must not be able to spend them.
+      kind = buyable and "into" or "row",
       title = item.label,
       note = item.note,
       value = owned and "owned" or (item.price .. " ◉"),
       -- Greyed when you can't have it yet, so the difference between "bought"
       -- and "can't afford" is visible without reading the numbers.
-      tone = owned and "settled" or (not afford and "faded" or nil),
-      act = (not owned and afford)
-            and function() c.act.buy(item.id) end or nil,
+      tone = owned and "settled" or ((not afford) and "faded" or nil),
     }
+    if buyable then
+      row.page = function() return self:confirm(item) end
+    end
+    rows[#rows + 1] = row
   end
 
   rows[#rows + 1] = sep()
@@ -359,6 +366,31 @@ function Pages:aisle(id)
   rows[#rows + 1] = sep()
   rows[#rows + 1] = back()
   return rows
+end
+
+--- "Are you sure?" — because there are no refunds.
+---
+--- Deliberately shows the arithmetic rather than just asking. What you actually
+--- want to know before spending 550 donuts is what you'll have left afterwards,
+--- and how many days of work that represents.
+function Pages:confirm(item)
+  local c = self.ctx
+  local purse = c.wallet()
+  local after = purse.balance - item.price
+
+  return {
+    { kind = "label", title = item.label },
+    { kind = "row", title = "Costs", value = item.price .. " ◉" },
+    { kind = "row", title = "You have", value = purse.balance .. " ◉" },
+    { kind = "row", title = "You'd have left", value = after .. " ◉",
+      tone = after < 50 and "asking" or nil },
+    sep(),
+    { kind = "row", title = "Buy it", tone = "settled",
+      note = "there are no refunds",
+      act = function() c.act.buy(item.id) end },
+    sep(),
+    { kind = "back", title = "‹  No, keep them" },
+  }
 end
 
 function Pages:earlier()

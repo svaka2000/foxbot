@@ -241,6 +241,42 @@ do
   check("no aisle overflows, even fully stocked", #tall, 0)
   if #tall > 0 then for _, s in ipairs(tall) do print("     " .. s) end end
 
+  -- The confirm page, on the most expensive thing in the shop, from a purse
+  -- that can just afford it. This is where the arithmetic is shown, so it is
+  -- where a wrong number would cost someone real days of work.
+  do
+    local dearest = nil
+    for _, item in ipairs(require("foxbot.shop").everything(everything)) do
+      if not dearest or item.price > dearest.price then dearest = item end
+    end
+    local rows = stocked:confirm(dearest)
+    ok("the confirm page renders", #rows > 0)
+    ok("and fits", Menu.measure(rows) <= Pages.MAX_PAGE)
+
+    local sawPrice, sawLeft, canLeave = false, false, false
+    local purse = stocked.ctx.wallet()
+    for _, row in ipairs(rows) do
+      if row.value == dearest.price .. " ◉" then sawPrice = true end
+      if row.value == (purse.balance - dearest.price) .. " ◉" then sawLeft = true end
+      if (row.kind or "row") == "back" then canLeave = true end
+    end
+    ok("it states the price", sawPrice)
+    ok("and what you'd have left", sawLeft)
+    ok("and can be backed out of", canLeave)
+  end
+
+  -- Tapping an item must never buy it outright: it opens the confirm page.
+  do
+    local straight = {}
+    for _, aisle in ipairs(stocked.ctx.shopAisles()) do
+      for _, row in ipairs(stocked:aisle(aisle.id)) do
+        if row.act and row.title ~= "Buy it" then straight[#straight + 1] = row.title end
+      end
+    end
+    check("nothing in an aisle spends without asking", #straight, 0)
+    if #straight > 0 then for _, s in ipairs(straight) do print("     " .. s) end end
+  end
+
   -- An id nobody stocks must not throw — a stale page closure could ask for
   -- one after the assets folder changed underneath it.
   local missing = stocked:aisle("no-such-aisle")
