@@ -19,12 +19,12 @@ Bubble.EMPTY, Bubble.BODY, Bubble.EDGE = EMPTY, BODY, EDGE
 
 -- One "pixel" of the art, in points. Everything is a whole number of these, so
 -- adjacent rectangles always share an exact edge and never leave a seam.
-Bubble.unit = 3
+Bubble.unit = 2
 Bubble.border = 2        -- units
 Bubble.chamfer = 2       -- units the corners step in
 Bubble.shadow = 1        -- units, offset down-right
-Bubble.tailDepth = 4     -- units tall
-Bubble.tailWidth = 5     -- units wide where it meets the bubble
+Bubble.tailDepth = 5     -- units tall
+Bubble.tailWidth = 6     -- units wide where it meets the bubble
 Bubble.tailInset = 3     -- units from the near edge
 
 -- ------------------------------------------------------------------- shape

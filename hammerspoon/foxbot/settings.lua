@@ -73,6 +73,15 @@ local SCHEMA = {
   -- unanswered questions
   remind      = true,
 
+  -- The focus timer. `focusKind` is "" when nothing is running rather than
+  -- nil, because a nil default can't be expressed in a table constructor.
+  focusFor    = 25 * 60,
+  breakFor    = 5 * 60,
+  focusKind   = "",
+  focusUntil  = 0,
+  focusDone   = 0,
+  focusDay    = 0,
+
   -- The tour. `taught` is the Teach.VERSION seen through to an ending, so a
   -- future tour can be shown again by bumping it. Read as a number, never as a
   -- boolean — 0 is truthy in Lua.

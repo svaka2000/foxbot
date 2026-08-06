@@ -120,8 +120,10 @@ Palette.foxWidth = 96      -- how wide he sits on screen
 Palette.badge    = 13      -- the status dot on his shoulder
 Palette.badgeGap = 3
 
-Palette.noteWidth  = 340   -- a plain note
-Palette.noteWide   = 440   -- one carrying detail lines
+-- Note widths. Ceilings, not targets — a note shrinks to its text.
+Palette.noteMin    = 150
+Palette.noteWidth  = 230   -- a plain note
+Palette.noteWide   = 290   -- one carrying detail lines
 Palette.pad        = 14
 Palette.gutter     = 12    -- fox to panel
 Palette.leading    = 8     -- note to note
@@ -130,14 +132,14 @@ Palette.linger     = 12    -- seconds a note stays up
 Palette.lingerStep = 7     -- ambient progress notes go sooner
 Palette.lingerLong = 30    -- the welcome-back summary earns longer
 
-Palette.chipHeight = 26    -- the little action buttons
+Palette.chipHeight = 22    -- the little action buttons
 Palette.chipGap    = 6
 
 Palette.barHeight  = 6     -- report bars
 
 Palette.face   = "Menlo"   -- monospace, to match where the sessions live
-Palette.head   = 13
-Palette.body   = 12
+Palette.head   = 12
+Palette.body   = 11.5
 Palette.menu   = 12.5
 Palette.small  = 10.5
 Palette.tiny   = 12        -- the dismiss cross

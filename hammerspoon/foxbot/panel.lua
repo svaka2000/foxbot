@@ -92,10 +92,18 @@ local function measureNote(note)
     y = y + Palette.chipHeight + 4
   end
 
-  -- Short notes shrink to their text; detailed ones keep the wider column so
-  -- the lines have somewhere to breathe.
-  local naturalW = math.max(titleW + CROSS.shift, bodyW) + pad * 2
-  local width = detailed and wide or math.min(wide, naturalW)
+  -- Shrink to whatever is actually in it. `wide` is a ceiling, not a target:
+  -- a two-word note in a full-width bubble looks like a mistake.
+  local widest = math.max(titleW + CROSS.shift, bodyW)
+  for _, line in ipairs(plan.lines) do
+    local w = measure(line.text, Palette.body, inner)
+    widest = math.max(widest, w)
+  end
+  local chipsW = 0
+  for _, chip in ipairs(plan.chips) do chipsW = chipsW + chip.w + Palette.chipGap end
+  widest = math.max(widest, chipsW)
+
+  local width = math.max(Palette.noteMin, math.min(wide, widest + pad * 2))
 
   -- Round out to whole bubble cells, so the art never lands on a half unit.
   local cols, rows, w, h = Bubble.fit(width, y + pad - 4, true)
@@ -308,6 +316,9 @@ end
 -- -------------------------------------------------------------------- notes
 
 function Panel:say(note)
+  -- The tail points back at the fox. Without this a note picks up the default
+  -- and points away from him, which reads as a bubble belonging to nothing.
+  note.tail = self.tail or "left"
   note.plan = measureNote(note)
   note.total = totalChars(note)
 
