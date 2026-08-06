@@ -4,3 +4,8 @@
 __pycache__/
 *.pyc
 .testhome/
+
+# Never. The key lives in ~/.claude/foxbot/groq.key, outside the repo --
+# this is only here so a stray copy can't be added by accident.
+*.key
+groq.key

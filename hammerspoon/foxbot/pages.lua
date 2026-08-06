@@ -497,6 +497,18 @@ function Pages:attention()
     act = function() c.act.tellMe() end,
   }
 
+  -- The only switch in the whole panel that causes anything to leave the
+  -- machine, so it says what it sends rather than making you go and read the
+  -- source to find out.
+  local remote = c.remote and c.remote() or nil
+  if remote then
+    rows[#rows + 1] = {
+      kind = "toggle", title = "Fresh tips", on = s.fresh,
+      note = remote.ready and remote.sends or "needs a key in ~/.claude/foxbot/groq.key",
+      act = function() c.act.toggle("fresh") end,
+    }
+  end
+
   rows[#rows + 1] = sep()
   rows[#rows + 1] = back()
   return rows

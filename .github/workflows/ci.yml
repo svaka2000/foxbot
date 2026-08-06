@@ -45,13 +45,48 @@ jobs:
           python3 -m pip install --quiet pillow
           python3 tools/draw_fox.py --out /tmp/fox.png
 
-      - name: Nothing talks to the network
+      - name: Only one file talks to the network
         run: |
-          if grep -rn "hs.http\|urlevent\|curl \|wget \|socket\." hammerspoon/ hooks/; then
-            echo "::error::a network call appeared — this project stays offline"
+          # Everything except remote.lua stays offline. remote.lua is the single
+          # opt-in feature that leaves the machine, and confining it to one file
+          # is what keeps that claim checkable rather than aspirational.
+          if grep -rn "hs.http\|urlevent\|curl \|wget \|socket\." \
+               --exclude=remote.lua hammerspoon/ hooks/; then
+            echo "::error::a network call appeared outside remote.lua"
             exit 1
           fi
-          echo "ok: no network calls"
+          echo "ok: nothing outside remote.lua talks to the network"
+
+      - name: And it cannot run without a key you put there
+        run: |
+          # The guarantee is not "there is a switch somewhere" -- it is that
+          # every path into the network checks for the key file first. If a new
+          # request is added without that check, this fails.
+          calls=$(grep -c "hs.http.async" hammerspoon/foxbot/remote.lua)
+          guards=$(grep -c "Remote.key()" hammerspoon/foxbot/remote.lua)
+          echo "$calls network calls, $guards key checks"
+          if [ "$guards" -lt "$calls" ]; then
+            echo "::error::a request in remote.lua is not behind a key check"
+            exit 1
+          fi
+          if ! grep -q "fresh" hammerspoon/foxbot/settings.lua; then
+            echo "::error::the opt-in switch has gone missing"
+            exit 1
+          fi
+          if grep -qE "fresh +=  *true" hammerspoon/foxbot/settings.lua; then
+            echo "::error::the network feature must default to off"
+            exit 1
+          fi
+          echo "ok: gated on a key file and an off-by-default switch"
+
+      - name: No key is committed
+        run: |
+          if grep -rnE "gsk_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}" \
+               --exclude-dir=.git .; then
+            echo "::error::that looks like an API key"
+            exit 1
+          fi
+          echo "ok: no keys in the tree"
 
       - name: The AppleScript bridge stays off
         run: |

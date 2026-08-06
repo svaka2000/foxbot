@@ -69,6 +69,7 @@ local function crowded(overrides)
     chimeFor = function() return "Hero" end,
     frontApp = function() return "Discord" end,
     isBreak = function() return true end,
+    remote = function() return { ready = false, sends = "nothing" } end,
 
     Settings = Settings,
     Sessions = Sessions,

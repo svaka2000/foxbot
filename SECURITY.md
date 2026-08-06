@@ -25,10 +25,44 @@ keychain, or anything outside those paths.
 
 ## Network
 
-There isn't any. No HTTP client, no sockets, no telemetry, no update check, no
-analytics. CI fails the build if a network call ever appears.
+**As installed: none.** No telemetry, no update check, no analytics, no
+crash reporting, no phoning home — ever, under any setting. Your session
+titles, prompts, summaries, file paths and token counts never leave the
+machine.
 
-Your session titles, prompts and summaries never leave the machine.
+There is exactly one optional feature that can make a request, and it is off.
+
+### "Fresh tips" — opt-in, and gated twice
+
+*Settings → Attention → Fresh tips.* When on, the fox can ask a hosted model
+(Groq) for a tip about the languages in the project you're working in, instead
+of drawing from the pack of ~60 tips he ships with. Everything else about him
+is unchanged, and the pack is the fallback for every failure.
+
+It does nothing at all unless **both** are true:
+
+1. `~/.claude/foxbot/groq.key` exists and holds a key **you** put there. There
+   is no key in this repository, no default endpoint credential, and no
+   sign-up. A key on disk alone is not enough —
+2. the **Fresh tips** switch is on. It ships off.
+
+**What is sent:** the file extensions found in the project folder, and nothing
+else. Not the folder name, not file names, not paths, not a line of your code,
+not what Claude is doing, not what app you're in, not your session titles. The
+menu row shows you the exact string that would be sent before you turn it on.
+
+**Where it lives:** every network call in the project is in
+`hammerspoon/foxbot/remote.lua` — one file, ~200 lines, readable in a sitting.
+
+**What CI enforces:**
+
+- no network call may appear in any other file;
+- every request in `remote.lua` must be behind a key check;
+- the switch must default to off;
+- nothing that looks like an API key may be committed.
+
+To turn it off for good, delete the key file. `Remote.key()` re-reads it on
+every call, so it stops immediately rather than at the next restart.
 
 ## macOS permissions
 

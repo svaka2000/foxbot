@@ -103,6 +103,11 @@ local SCHEMA = {
   loreSeen    = {},
   loreOn      = 0,           -- start-of-day he last volunteered one
 
+  -- Optional: ask a hosted model for a tip about the languages in the project
+  -- you're in. Off unless you turn it on AND have put a key on disk, because
+  -- it is the one thing here that leaves the machine. See remote.lua.
+  fresh       = false,
+
   perProject  = {},          -- folder -> { mute = true, voice = "..." }
   keepDays    = 30,
 }

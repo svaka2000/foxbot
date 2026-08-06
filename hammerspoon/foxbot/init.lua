@@ -29,6 +29,7 @@ local Teach    = require("foxbot.teach")
 local Timer    = require("foxbot.timer")
 local Lore     = require("foxbot.lore")
 local Drift    = require("foxbot.drift")
+local Remote   = require("foxbot.remote")
 
 local M = {}
 
@@ -347,11 +348,8 @@ local function chase(row)
   })
 end
 
---- Tell you something. Asked for from the menu, or volunteered once a day.
-local function teachSomething(volunteered)
-  local item = lore and lore:pick()
-  if not item then return end
-
+--- Show one thing he knows.
+local function tellNote(item, volunteered)
   local silence, show = Hush.check(settings)
   -- Asking for one is a request, and a request is answered even at "only when
   -- needed"; volunteering is interrupting, and interrupting has to earn it.
@@ -364,9 +362,35 @@ local function teachSomething(volunteered)
     title = item.title,
     body = item.text,
     chips = {
-      { label = "another", act = function() teachSomething(false) end },
+      { label = "another", act = function() M.tellMe(false) end },
     },
   })
+end
+
+--- Tell you something. Asked for from the menu, or volunteered once a day.
+---
+--- The shipped pack is the answer. The hosted model is an optional garnish on
+--- top of it, and it is arranged so that every possible failure — no key, the
+--- switch off, no network, a retired model, a reply that came back as three
+--- paragraphs of markdown — lands on the pack rather than on an error. There
+--- is nothing to go wrong from where you are sitting.
+function M.tellMe(volunteered)
+  local function fromPack()
+    local item = lore and lore:pick()
+    if item then tellNote(item, volunteered) end
+  end
+
+  if not settings.fresh or not Remote.available() then return fromPack() end
+
+  local folder = (recent[1] or {}).cwd
+  local languages = Remote.languages(folder)
+  if #languages == 0 then return fromPack() end
+
+  Remote.tip(languages, function(text)
+    if not text then return fromPack() end
+    tellNote({ tag = "fresh", text = text,
+               title = "About " .. languages[1] }, volunteered)
+  end)
 end
 
 --- Notice you've been somewhere else for a while with something still waiting.
@@ -574,6 +598,12 @@ local function buildPages()
     frontApp = function() return drift and drift.app or nil end,
     isBreak = function(app) return drift and drift:isBreak(app) or false end,
 
+    remote = function()
+      local folder = (recent[1] or {}).cwd
+      return { ready = Remote.available(),
+               sends = Remote.describe(Remote.languages(folder)) }
+    end,
+
     act = {
       toggle = function(name)
         Settings.toggle(settings, name)
@@ -594,7 +624,7 @@ local function buildPages()
       markBreak = function(app)
         if drift then drift:mark(app, not drift:isBreak(app)) end
       end,
-      tellMe = function() teachSomething(false) end,
+      tellMe = function() M.tellMe(false) end,
       startFocus = function(kind)
         clock:start(kind)
         M.paintBar()
@@ -874,7 +904,7 @@ local function start()
         local day = Stats.startOfDay()
         if not lore:offeredToday(day) then
           lore:markOffered(os.time())
-          hs.timer.doAfter(2, function() teachSomething(true) end)
+          hs.timer.doAfter(2, function() M.tellMe(true) end)
         end
       end
     end,

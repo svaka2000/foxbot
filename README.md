@@ -106,6 +106,11 @@ the bottom to open the folder, open it in your editor, or copy the summary.
 | **Per-turn timing and cost** | `4m 12s · 51.5k`, from the real transcript |
 | **What actually changed** | summaries built from files and commands, not prose |
 | **Live progress notes** | rate-limited, never repetitive |
+| **One dial for noise** | needed / normal / chatty, instead of nine switches |
+| **A focus timer** | 25 and 5, in the menu bar, never auto-starting the next |
+| **Notices you've drifted** | opt-in, and only when something's actually waiting |
+| **Teaches you things** | ~60 shipped tips, never repeating until you've seen them all |
+| **Shows you around** | a five-step tour the first time, then never again |
 | **Today / this week** | turns, time, tokens, per-project, streaks |
 | **Any terminal** | iTerm, Ghostty, WezTerm, Warp, kitty, Alacritty, VS Code, Cursor, Zed |
 | **Quiet hours** | plus automatic silence while you're screen sharing |
@@ -164,6 +169,92 @@ switches, and his own colours. A system menu can't carry any of that, which is
 most of what makes it worth opening.
 
 Sub-pages open in place with a back row, so you don't lose your footing.
+
+## How much he talks
+
+One dial, in *Settings → How much he speaks up*:
+
+| | he says something when |
+|---|---|
+| **only when needed** | a session is blocked on you, or something broke |
+| **normal** *(default)* | …and when a turn finishes |
+| **chatty** | …and what he's doing as he does it |
+
+This started as nine separate switches, each individually reasonable. Measured
+over an ordinary hour they produced **49 notes**, 22 of them announcing that a
+session had closed. Turn-starts and session-closes now produce no note at any
+level — the ring and the menu bar already carry that, and "a session closed" is
+the least actionable thing anything can interrupt you with. The same hour now
+produces six.
+
+## A focus timer
+
+Twenty-five minutes, then five, with a longer rest every fourth block. It runs
+in the menu bar next to the session count.
+
+He already knows whether you're actually working, so this is less of a bolt-on
+than it sounds — but it is deliberately **not** a tracker, not a streak, and not
+a to-do list. When a block ends it tells you once and offers the next one. It
+never starts the next one by itself: a break you didn't ask for is where nagging
+begins.
+
+## Noticing you've drifted
+
+*Settings → Attention.* **Off by default.**
+
+macOS hands out the frontmost app's identity for free. It does not hand out
+window *titles* without Screen Recording — and Screen Recording, once granted,
+lets the holder read everything on your display, including other people's
+messages and anything in a password field. Foxbot doesn't ask for it and never
+will.
+
+So he can know you're in Discord. He cannot know which channel. The honest
+consequence is that **browsers are opaque**: "Google Chrome" might be the docs
+or it might be Twitter, so browsers are not counted unless you say so yourself.
+
+When it's on, he needs *all* of the following before he says anything:
+
+- the app is one marked as a break;
+- you've been in it continuously, not just passed through (5 minutes, adjustable);
+- and something is actually waiting — a focus block you started, or a session
+  blocked on a question.
+
+That last one is the point. Being on Discord at 9pm with nothing running is not
+a problem, and a tool that treats it as one is a tool you turn off. At most one
+nudge in 45 minutes, three a day, never while you're away.
+
+Editing the list needs no typing: open the panel while in an app and it offers
+that app as a row. His own window is ignored by the sampler, so opening the menu
+doesn't reset the clock it's about to show you.
+
+## Telling you things
+
+He ships with about sixty things he can tell you — git, the shell, macOS,
+Claude Code, computing history, and a few facts that are simply good. Drawn
+**without replacement**: you'll see every one before you see any of them twice.
+(`pack[random(#pack)]` repeats within a dozen draws, and a tool that says
+something charming and then repeats it stops being charming immediately.)
+
+He volunteers one a day, at the end of a work block — the one moment he knows
+you're stopping anyway. Ask for as many as you like from *Settings → Attention →
+Tell me something now*.
+
+**Optionally**, and off unless you turn it on, he can ask a hosted model for a
+tip about the languages in the project you're actually in. That needs a key you
+put at `~/.claude/foxbot/groq.key` *and* the switch turned on, it sends nothing
+but file extensions, and every failure falls back to the shipped pack. It is the
+only thing in the project that leaves your machine — see
+[SECURITY.md](SECURITY.md) for exactly what is sent and what CI enforces.
+
+## The first five minutes
+
+The first time he starts, he walks you through it: where he is, that you can
+drag him, that clicking opens the panel, what the ring colours mean, and how to
+make him be quiet. Five short notes, each waiting for you to actually do the
+thing before moving on.
+
+It gives up gracefully. If you ignore it, it tries at most three launches and
+then stops for good rather than greeting you forever.
 
 ## He won't let you miss a question
 
