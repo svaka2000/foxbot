@@ -432,6 +432,56 @@ do
   check("art falls back", Mood.art("nonsense"), "resting")
 end
 
+-- ------------------------------------------------------------ settling moods
+
+do
+  -- Sprite.settle is the bit that keeps him in step with reality. Exercised on
+  -- a bare table rather than a real sprite, since it only touches these fields
+  -- and building the real thing needs a canvas.
+  local Sprite = require("foxbot.sprite")
+
+  local function fake(mood, until_)
+    local it = setmetatable({
+      mood = mood or "resting", until_ = until_, after = "resting",
+      wore = nil,
+    }, Sprite)
+    it.wear = function(self, name) self.wore = name end
+    it.paintBadge = function() end
+    return it
+  end
+
+  -- The bug this exists to catch: with no temporary mood in play it used to
+  -- return immediately, so ambient states never arrived. Nothing *happens* at
+  -- 2am — if he only re-checked after a reaction wore off, he'd stay wide awake.
+  local idle = fake("resting")
+  idle:settle(function() return "sleeping" end)
+  check("ambient moods arrive with no event", idle.mood, "sleeping")
+  check("and he changes drawing for it", idle.wore, "sleeping")
+
+  -- A reaction that hasn't run out yet is left alone.
+  local reacting = fake("settled", os.time() + 60)
+  reacting:settle(function() return "sleeping" end)
+  check("a live reaction is not interrupted", reacting.mood, "settled")
+  check("and no drawing swap", reacting.wore, nil)
+
+  -- Once it expires, reality wins.
+  local expired = fake("settled", os.time() - 1)
+  expired:settle(function() return "running" end)
+  check("an expired reaction gives way", expired.mood, "running")
+  check("the timer is cleared", expired.until_, nil)
+
+  -- Settling to what he already is must not churn the canvas every tick.
+  local same = fake("sleeping")
+  same:settle(function() return "sleeping" end)
+  check("no needless redraw", same.wore, nil)
+
+  -- No resolver at all falls back rather than erroring.
+  local bare = fake("settled", os.time() - 1)
+  bare.after = "weary"
+  bare:settle(nil)
+  check("falls back without a resolver", bare.mood, "weary")
+end
+
 -- --------------------------------------------------------------- coat variants
 
 do

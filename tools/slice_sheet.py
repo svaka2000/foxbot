@@ -114,6 +114,9 @@ def main():
     parser.add_argument("--width", type=int, default=TARGET_WIDTH)
     parser.add_argument("--cutoff", type=int, default=140)
     parser.add_argument("--outdir", default=None)
+    parser.add_argument("--base", default=None,
+                        help="the coat's default sprite, refitted to match the "
+                             "sheet so he doesn't change size when resting")
     parser.add_argument("--dry-run", action="store_true",
                         help="report what it found without writing anything")
     args = parser.parse_args()
@@ -124,30 +127,93 @@ def main():
     sheet = prepare(args.sheet, args.cutoff)
     print("  sheet %dx%d" % sheet.size)
 
-    written = 0
+    # Crop every pose to its own content first, but don't scale anything yet.
+    poses = []
     for box, mood in zip(cells(sheet.getchannel("A")), MOODS):
         cell = sheet.crop(box)
         trimmed = cell.getbbox()
         if not trimmed:
             print("  %-9s EMPTY — skipped" % mood)
             continue
-        cell = cell.crop(trimmed)
+        poses.append((mood, cell.crop(trimmed)))
 
-        height = max(1, round(cell.height * args.width / cell.width))
-        cell = cell.resize((args.width, height), Image.BOX)
-        alpha = cell.getchannel("A").point(lambda v: 255 if v >= 128 else 0)
-        cell.putalpha(alpha)
-        cell = snap(cell)
+    if not poses:
+        raise SystemExit("nothing found in that sheet")
+
+    # One scale for all of them, and one canvas.
+    #
+    # Scaling each pose to fill the same width independently would enlarge
+    # whichever was drawn smallest, so he'd change size every time his mood
+    # changed. Instead: one factor taken from the widest pose, applied to all,
+    # then everything padded to a shared box and sat on a shared floor. His feet
+    # stay on the same line and only the pose changes, which is the whole point.
+    widest = max(pose.width for _, pose in poses)
+    tallest = max(pose.height for _, pose in poses)
+    scale = args.width / widest
+    canvas = (args.width, max(1, round(tallest * scale)))
+    print("  scaling everything by %.3f -> a shared %dx%d frame" % (scale, *canvas))
+
+    written = 0
+    for mood, pose in poses:
+        size = (max(1, round(pose.width * scale)), max(1, round(pose.height * scale)))
+        pose = pose.resize(size, Image.BOX)
+
+        alpha = pose.getchannel("A").point(lambda v: 255 if v >= 128 else 0)
+        pose.putalpha(alpha)
+        pose = snap(pose)
+
+        framed = Image.new("RGBA", canvas, (0, 0, 0, 0))
+        framed.alpha_composite(pose, ((canvas[0] - pose.width) // 2,
+                                      canvas[1] - pose.height))
 
         name = "%s-%s.png" % (args.coat, mood)
         if args.dry_run:
-            print("  %-9s %dx%d  (would write %s)" % (mood, cell.width, cell.height, name))
+            print("  %-9s drawn %dx%d in a %dx%d frame  (would write %s)"
+                  % (mood, pose.width, pose.height, *canvas, name))
             continue
 
         os.makedirs(outdir, exist_ok=True)
-        cell.save(os.path.join(outdir, name))
-        print("  %-9s %dx%d  -> %s" % (mood, cell.width, cell.height, name))
+        framed.save(os.path.join(outdir, name))
+        print("  %-9s drawn %dx%d in a %dx%d frame  -> %s"
+              % (mood, pose.width, pose.height, *canvas, name))
         written += 1
+
+    # The default sprite was made separately, so it is drawn at its own scale.
+    # Left alone it would be the one pose that changes size — and it's the one
+    # he spends most of his time in. Refit it to the sheet's typical sitting
+    # width so resting matches everything else.
+    if args.base:
+        base = Image.open(args.base).convert("RGBA")
+        if base.getchannel("A").getextrema()[0] == 255:
+            base, _ = key_out(base)
+        alpha = base.getchannel("A").point(lambda v: 255 if v >= args.cutoff else 0)
+        base.putalpha(alpha)
+        base = base.crop(base.getbbox())
+
+        # Median rather than mean: the outliers here are a pose with its paws
+        # thrown wide and one curled up asleep, and neither is how he usually
+        # sits.
+        widths = sorted(round(p.width * scale) for _, p in poses)
+        typical = widths[len(widths) // 2]
+
+        fitted = max(1, round(base.height * typical / base.width))
+        base = base.resize((typical, fitted), Image.BOX)
+        alpha = base.getchannel("A").point(lambda v: 255 if v >= 128 else 0)
+        base.putalpha(alpha)
+        base = snap(base)
+
+        framed = Image.new("RGBA", canvas, (0, 0, 0, 0))
+        framed.alpha_composite(base, ((canvas[0] - base.width) // 2,
+                                      canvas[1] - base.height))
+        name = "%s.png" % args.coat
+        if args.dry_run:
+            print("  %-9s drawn %dx%d in a %dx%d frame  (would rewrite %s)"
+                  % ("resting", base.width, base.height, *canvas, name))
+        else:
+            framed.save(os.path.join(outdir, name))
+            print("  %-9s drawn %dx%d in a %dx%d frame  -> %s"
+                  % ("resting", base.width, base.height, *canvas, name))
+            written += 1
 
     if not args.dry_run:
         print("\n%d sprites written to %s" % (written, outdir))

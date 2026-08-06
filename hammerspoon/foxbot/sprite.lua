@@ -147,12 +147,23 @@ function Sprite:feel(name, after)
   self:paintBadge()
 end
 
---- Called each frame; `resolve` decides what to fall back to.
+--- Keep him in step with whatever is true now. `resolve` says what that is.
+---
+--- This has to run even when no temporary mood is in play, or the ambient
+--- states never arrive: nothing *happens* at two in the morning, so if he only
+--- re-checked when a reaction wore off he would sit there wide awake until the
+--- next event. Call it on a timer, not every frame — `resolve` reads the ledger.
 function Sprite:settle(resolve)
-  if not self.until_ or os.time() < self.until_ then return end
-  self.until_ = nil
-  self.mood = (resolve and resolve()) or self.after or "resting"
-  self:wear(self.mood)
+  if self.until_ then
+    if os.time() < self.until_ then return end
+    self.until_ = nil                     -- the reaction has run its course
+  end
+
+  local want = (resolve and resolve()) or self.after or "resting"
+  if want == self.mood then return end
+
+  self.mood = want
+  self:wear(want)
   self:paintBadge()
 end
 

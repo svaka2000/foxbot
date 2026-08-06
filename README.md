@@ -118,6 +118,8 @@ the bottom to open the folder, open it in your editor, or copy the summary.
 
 Ten of them.
 
+<img src="docs/moods.png" alt="All ten moods" width="100%">
+
 | Mood | When |
 |---|---|
 | resting | nothing running |

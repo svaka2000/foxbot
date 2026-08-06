@@ -126,7 +126,15 @@ end
 --- longest turn has been going, whether anything is blocked on you, whether
 --- you're at the machine, the time of day, and how much work has gone through
 --- today. Mood.settle decides the order.
+local moodAt, moodWas = 0, "resting"
+
 local function restingMood()
+  -- Recomputed at most every few seconds: this walks the ledger, and it is now
+  -- called on a timer rather than only when something happens. `moodAt` is
+  -- reset whenever an event lands, so it is never stale when it matters.
+  local now = os.time()
+  if now - moodAt < 3 then return moodWas end
+
   local longest = 0
   for _, row in ipairs(sessions:list()) do
     longest = math.max(longest, row.elapsed or 0)
@@ -135,7 +143,7 @@ local function restingMood()
   local hour = tonumber(os.date("%H"))
   local today = Stats.summarise(ledger.rows, Stats.startOfDay())
 
-  return Mood.settle({
+  moodAt, moodWas = now, Mood.settle({
     waiting = sessions:waitingCount(),
     running = sessions:count(),
     longestRun = longest,
@@ -143,11 +151,13 @@ local function restingMood()
     nightTime = Hush.within(hour, settings.sleepFrom or 23, settings.sleepTo or 6),
     workedToday = today.seconds,
   })
+  return moodWas
 end
 
 
 local function refeel(kind)
   if not fox then return end
+  moodAt = 0                              -- something happened; recompute
   fox:feel(kind and Mood.fromKind(kind) or restingMood(), restingMood())
 end
 
@@ -988,7 +998,6 @@ local function start()
   })
   if not fox then return end
 
-  fox.onFrame = function() fox:settle(restingMood) end
 
   board = Board.new()
   panel = Panel.new()
@@ -1016,6 +1025,10 @@ local function start()
   M.pulse = hs.timer.doEvery(3, function()
     for _, event in ipairs(drain()) do handle(event) end
     away:check()
+
+    -- Ambient moods — asleep, dozing, worn out — arrive because time passes,
+    -- not because anything happened, so he has to be asked.
+    fox:settle(restingMood)
 
     if settings.remind then
       for _, row in ipairs(sessions:overdue()) do chase(row) end
