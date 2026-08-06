@@ -125,10 +125,19 @@ function Wallet:credit(turn, startOfDay)
   local total = Wallet.forTurn(turn.tokens)
   why.turn = total
 
-  -- Showing up.
+  -- Showing up. The streak rides along with it rather than being credited
+  -- separately: both are "you came back today", and paying them in one go is
+  -- what keeps them from being clipped differently by the daily ceiling.
   if (self.lastTurn or 0) < startOfDay then
     total = total + Wallet.FIRST_TURN
     why.first = Wallet.FIRST_TURN
+
+    local streak = math.min(math.max(0, turn.streak or 0), Wallet.STREAK_CAP)
+    -- A one-day "streak" is just today. It starts paying on the second.
+    if streak > 1 then
+      total = total + streak
+      why.streak = streak
+    end
   end
 
   -- Unblocking yourself quickly. `askedAt` is when he started waiting on you;

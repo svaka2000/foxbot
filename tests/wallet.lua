@@ -83,6 +83,24 @@ do
 
   check("a finished focus block pays", w:finishedFocus(day), Wallet.FOCUS_BLOCK)
 
+  -- The streak rides with the first turn of a day, not on its own.
+  local w2 = fresh()
+  local _, day1 = w2:credit({ tokens = 0, at = 1000, streak = 1 }, 1000)
+  check("one day is not a streak", day1.streak, nil)
+
+  local w3 = fresh()
+  local _, day4 = w3:credit({ tokens = 0, at = 1000, streak = 4 }, 1000)
+  check("four days pays four", day4.streak, 4)
+
+  local w4 = fresh()
+  local _, huge = w4:credit({ tokens = 0, at = 1000, streak = 90 }, 1000)
+  check("and it is capped at a week", huge.streak, Wallet.STREAK_CAP)
+
+  -- Only on the day's first turn: otherwise a busy day pays the streak
+  -- forty times over.
+  local _, second = w4:credit({ tokens = 0, at = 1100, streak = 90 }, 1000)
+  check("and only once a day", second.streak, nil)
+
   check("a streak pays a little", w:streakBonus(3, day), 3)
   check("and is capped at a week", w:streakBonus(400, day + 86400), Wallet.STREAK_CAP)
   check("no streak, nothing", w:streakBonus(0, day + 172800), 0)

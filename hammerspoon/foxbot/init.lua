@@ -637,6 +637,8 @@ local function handle(event)
         tokens = (event.tokens or 0) + (event.subTokens or 0),
         at = event.ts or now,
         askedAt = askedAt,
+        -- Read after the append above, so today is already counted.
+        streak = Stats.streak(ledger.rows),
       }, Stats.startOfDay())
     end
   end
