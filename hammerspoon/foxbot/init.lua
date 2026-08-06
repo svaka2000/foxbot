@@ -60,6 +60,27 @@ local DETAIL = {
 }
 local DETAIL_LINES = { name = nil, brief = 3, full = 6 }
 
+
+-- Which event kinds are allowed to put something on screen, per chatter level.
+-- `busy` and `end` appear nowhere on purpose.
+local SPEAKS_UP = {
+  needed = { ask = true, idle = true, nudge = true, error = true },
+  normal = { ask = true, idle = true, nudge = true, error = true, done = true },
+  chatty = { ask = true, idle = true, nudge = true, error = true, done = true,
+             step = true },
+}
+local CHATTY_LEVELS = { "needed", "normal", "chatty" }
+local CHATTY_LABEL = {
+  needed = "only when needed",
+  normal = "normal",
+  chatty = "chatty",
+}
+local CHATTY_NOTE = {
+  needed = "questions and failures only",
+  normal = "and when a turn finishes",
+  chatty = "and what he's doing as he does it",
+}
+
 -- What counts as being away.
 local AWAY_STEPS = { 0, 900, 1800 }
 local AWAY_LABEL = { [0] = "locked or asleep", [900] = "15 min idle", [1800] = "30 min idle" }
@@ -194,9 +215,19 @@ local function chipsFor(event)
   return chips
 end
 
---- Put a note on screen for a finished / asking / closed event.
+--- Is this event worth putting on screen at all?
+local function worthSaying(kind)
+  local allowed = SPEAKS_UP[settings.chatty] or SPEAKS_UP.normal
+  return allowed[kind] == true
+end
+
+--- Put a note on screen for a finished / asking event.
 local function announce(event, elapsed)
   remember(event)
+
+  -- Everything is still tracked, counted and remembered. This only decides
+  -- whether it interrupts.
+  if not worthSaying(event.kind) then return end
 
   local rule = Settings.project(settings, event.folder)
   local silence, show = Hush.check(settings, event.ts)
@@ -261,7 +292,7 @@ end
 --- An ambient note about what just got applied to the project. The quietest
 --- thing he does: no sound, no startle, gone sooner, no buttons.
 local function ambient(event)
-  if not settings.notes then return end
+  if not worthSaying("step") then return end
   -- Something is already blocked on you; a progress note on top is noise at
   -- the exact moment you least want it.
   if sessions:isWaiting() then return end
@@ -389,7 +420,6 @@ local function handle(event)
     sessions:answered(event)          -- work restarting means it got answered
     refeel("busy")
     M.paintBar()
-    if settings.noteStarts then announce(event) end
     return
   end
 
@@ -442,6 +472,7 @@ end
 -- ------------------------------------------------------------------- menus
 
 local home        -- forward declaration; sub-pages link back to it
+local chatterPage
 
 local function backRow()
   return { kind = "back", title = "‹  Back" }
@@ -658,6 +689,30 @@ local function soundsPage()
   return rows
 end
 
+--- One dial for how much he interrupts.
+function chatterPage()
+  local rows = { { kind = "label", title = "How much he speaks up" } }
+  for _, level in ipairs(CHATTY_LEVELS) do
+    rows[#rows + 1] = {
+      kind = "choice", title = CHATTY_LABEL[level],
+      on = (settings.chatty or "normal") == level,
+      note = CHATTY_NOTE[level],
+      act = function()
+        settings.chatty = level
+        Settings.save(settings)
+      end,
+    }
+  end
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = { kind = "row", tone = "faded",
+    title = "He never announces a turn starting" }
+  rows[#rows + 1] = { kind = "row", tone = "faded",
+    title = "or a session closing, at any setting" }
+  rows[#rows + 1] = { kind = "sep" }
+  rows[#rows + 1] = backRow()
+  return rows
+end
+
 local function hushPage()
   local rows = {
     { kind = "label", title = "Quiet hours" },
@@ -816,14 +871,11 @@ function home()
     { kind = "sep" },
 
     { kind = "label", title = "Interruptions" },
-    { kind = "toggle", title = "Live progress notes", on = settings.notes,
-      note = "one every 2 min at most, four a turn",
-      act = function() Settings.toggle(settings, "notes") end },
+    { kind = "into", title = "How much he speaks up", page = chatterPage,
+      value = CHATTY_LABEL[settings.chatty or "normal"] },
     { kind = "toggle", title = "Chase unanswered questions", on = settings.remind,
       note = "again at 1m, 5m, 15m",
       act = function() Settings.toggle(settings, "remind") end },
-    { kind = "toggle", title = "Note when a turn starts", on = settings.noteStarts,
-      act = function() Settings.toggle(settings, "noteStarts") end },
     { kind = "toggle", title = "Mute everything", on = settings.quiet,
       act = function() Settings.toggle(settings, "quiet") end },
     { kind = "into", title = "Quiet hours", page = hushPage,

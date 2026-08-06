@@ -36,8 +36,17 @@ local SCHEMA = {
 
   -- live awareness
   showRunning = true,
-  noteStarts  = false,       -- pop a note the moment a turn begins
-  notes       = true,        -- ambient progress notes mid-turn
+
+  -- How much he speaks up. One dial rather than a row of toggles, because the
+  -- toggles were individually reasonable and collectively deafening — 46 events
+  -- in an hour, 22 of them announcing that a session had closed.
+  --   "needed" — only when something is blocked on you, or broke
+  --   "normal" — the above, plus finished turns
+  --   "chatty" — the above, plus live progress notes
+  -- Turn-starts and session-closes produce no note at any level: the ring and
+  -- the menu bar already carry that, and "a session closed" is the least
+  -- actionable thing he could interrupt you with.
+  chatty      = "normal",
 
   -- being left alone
   hush        = false,

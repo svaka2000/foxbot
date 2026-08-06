@@ -15,6 +15,7 @@ Panel.__index = Panel
 
 local FADE = 0.16
 local CROSS = { pad = 11, box = 16, reach = 26, shift = 15 }
+local MOST_AT_ONCE = 2
 
 function Panel.new()
   return setmetatable({ notes = {}, spots = {}, hot = nil }, Panel)
@@ -286,7 +287,11 @@ function Panel:say(note)
 
   self.notes[#self.notes + 1] = note
 
-  -- Never let the column grow past the screen; the oldest goes first.
+  -- Two on screen is a stack; three is a wall. Whatever the screen could fit,
+  -- the oldest goes as soon as there are more than a couple.
+  while #self.notes > MOST_AT_ONCE do self:drop(self.notes[1]) end
+
+  -- And never let the column grow past the screen either; the oldest goes first.
   local limit = (self.screen and self.screen.h or 900) - 60
   local total = 0
   for _, held in ipairs(self.notes) do
