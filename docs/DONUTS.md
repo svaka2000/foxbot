@@ -131,7 +131,7 @@ A separate small image anchored to the head, so one hat works on every animal.
 
 | item | price | what it is |
 |---|---|---|
-| **Terminal green** | 120 | black and phosphor |
+| **Terminal** | 120 | black and phosphor |
 | **Blueprint** | 120 | white on drafting blue |
 | **Sakura** | 150 | pale pink paper |
 | **Midnight** | 150 | deep blue, low contrast |

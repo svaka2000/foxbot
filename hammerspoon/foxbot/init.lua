@@ -506,7 +506,6 @@ local function noticeDrift(why)
       { label = "thanks", act = function() end },
     },
   })
-  drift:spoke(os.time())
 end
 
 --- One note covering everything that happened while you were away.
@@ -1112,7 +1111,14 @@ local function start()
           focus = clock and clock:kind() or nil,
           blocked = sessions:waitingCount(),
         })
-        if why then noticeDrift(why) end
+        if why then
+          -- Consumed whether or not it is shown. Otherwise hiding him, or
+          -- quiet hours, leaves `should` true on every poll for hours, and the
+          -- moment either lifts you get a nudge about something you have long
+          -- since dealt with.
+          drift:spoke(os.time())
+          noticeDrift(why)
+        end
       end
     end
     if clock then

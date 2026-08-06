@@ -267,6 +267,45 @@ do
   if #missing > 0 then for _, s in ipairs(missing) do print("     " .. s) end end
 end
 
+-- ------------------------------------------------- the prices match the doc
+
+do
+  -- Every price exists twice: in shop.lua, and in the table in docs/DONUTS.md
+  -- that people read before deciding whether the grind is worth it. A shop
+  -- quietly charging more than the documented price is the sort of thing that
+  -- is only ever noticed by the person who paid it.
+  local file = io.open("docs/DONUTS.md", "r")
+  if not file then
+    ok("the design doc is where it was expected", false)
+  else
+    local text = file:read("*a") file:close()
+
+    local documented = {}
+    for label, price in text:gmatch("|%s*%*%*([^*]+)%*%*%s*|%s*(%d+)%s*|") do
+      documented[label] = tonumber(price)
+    end
+    ok("the doc lists prices", next(documented) ~= nil)
+
+    local wrong = {}
+    local everything = Shop.everything({
+      tabby = true, corgi = true, raccoon = true, axolotl = true, crow = true,
+      ghost = true, arctic = true, melanistic = true, fennec = true,
+      ninetails = true,
+    })
+    for _, item in ipairs(everything) do
+      local said = documented[item.label]
+      if said == nil then
+        wrong[#wrong + 1] = item.label .. " is on the shelf but not in the doc"
+      elseif said ~= item.price then
+        wrong[#wrong + 1] = string.format("%s costs %d, the doc says %d",
+                                          item.label, item.price, said)
+      end
+    end
+    check("the shop charges what the doc says", #wrong, 0)
+    if #wrong > 0 then for _, s2 in ipairs(wrong) do print("     " .. s2) end end
+  end
+end
+
 -- --------------------------------------------------- the CLI says the same
 
 do
