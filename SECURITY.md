@@ -25,12 +25,20 @@ keychain, or anything outside those paths.
 
 ## Network
 
-**As installed: none.** No telemetry, no update check, no analytics, no
-crash reporting, no phoning home — ever, under any setting. Your session
-titles, prompts, summaries, file paths and token counts never leave the
-machine.
+**As installed, Foxbot makes no network requests at all.**
 
-There is exactly one optional feature that can make a request, and it is off.
+There is exactly one feature that can make one — "Fresh tips", described below.
+It is off, it needs an API key you supply yourself, and it is the only
+exception on this page.
+
+Two things remain true whether or not you turn it on:
+
+- **No telemetry, ever.** No analytics, no update check, no crash reporting, no
+  usage reporting, no phoning home. There is no setting that enables any of
+  these, because none of the code exists.
+- **Your work never leaves the machine.** Session titles, prompts, summaries,
+  transcripts, file paths, folder names and token counts are never sent
+  anywhere. Fresh tips sends a list of file extensions and nothing else.
 
 ### "Fresh tips" — opt-in, and gated twice
 
