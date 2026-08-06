@@ -327,17 +327,14 @@ function Pages:settings()
     { kind = "into", title = "Per project",
       value = muted > 0 and (muted .. " muted") or "none",
       page = function() return self:projects() end },
+    { kind = "into", title = "Attention",
+      value = s.drift and "watching" or "off",
+      page = function() return self:attention() end },
     sep(),
 
-    { kind = "label", title = "Notes" },
-    { kind = "into", title = "Voice", value = c.Voice.get(s.voice).label,
-      page = function() return self:voice() end },
-    { kind = "into", title = "Detail", value = s.detail or "brief",
-      page = function() return self:detail() end },
-    { kind = "toggle", title = "Type them out", on = s.typing ~= false,
-      note = "letter by letter, click to skip",
-      act = function() c.act.toggle("typing") end },
-    { kind = "into", title = "Sounds", page = function() return self:sounds() end },
+    { kind = "into", title = "Notes",
+      value = c.Voice.get(s.voice).label .. ", " .. (s.detail or "brief"),
+      page = function() return self:notes() end },
     sep(),
 
     { kind = "label", title = "Look" },
@@ -429,6 +426,77 @@ function Pages:away()
       act = function() c.act.setAway(seconds) end,
     }
   end
+  rows[#rows + 1] = sep()
+  rows[#rows + 1] = back()
+  return rows
+end
+
+--- How a note reads and sounds.
+---
+--- These were four rows on the settings page until settings grew past the
+--- height it is allowed to be. They belong together anyway: all four are about
+--- the note itself rather than about when one appears.
+function Pages:notes()
+  local c, s = self.ctx, self.ctx.settings
+  return {
+    { kind = "label", title = "Notes" },
+    { kind = "into", title = "Voice", value = c.Voice.get(s.voice).label,
+      page = function() return self:voice() end },
+    { kind = "into", title = "Detail", value = s.detail or "brief",
+      page = function() return self:detail() end },
+    { kind = "toggle", title = "Type them out", on = s.typing ~= false,
+      note = "letter by letter, click to skip",
+      act = function() c.act.toggle("typing") end },
+    { kind = "into", title = "Sounds", page = function() return self:sounds() end },
+    sep(),
+    back(),
+  }
+end
+
+--- Noticing you've drifted, and teaching you things.
+---
+--- Both live here because they're the two places he speaks without an event
+--- having happened, and anyone who dislikes one probably wants to find the
+--- other quickly.
+function Pages:attention()
+  local c, s = self.ctx, self.ctx.settings
+  local minutes = math.floor((s.driftAfter or 300) / 60)
+  local app = c.frontApp and c.frontApp() or nil
+
+  local rows = {
+    { kind = "label", title = "When you wander off" },
+    { kind = "toggle", title = "Say something", on = s.drift,
+      note = "only if a block is running or a session is blocked",
+      act = function() c.act.toggle("drift") end },
+    { kind = "stepper", title = "After", value = minutes .. " min",
+      act = function() c.act.stepDrift() end },
+  }
+
+  -- The list of what counts as a break is editable without typing: whatever
+  -- you were in before you opened this menu is offered as a row. Asking
+  -- someone to enter a bundle identifier would mean nobody ever changed it.
+  if app then
+    rows[#rows + 1] = sep()
+    rows[#rows + 1] = { kind = "label", title = "Counts as a break" }
+    rows[#rows + 1] = {
+      kind = "toggle", title = app, on = c.isBreak and c.isBreak(app) or false,
+      note = "he can see which app, never what's in it",
+      act = function() c.act.markBreak(app) end,
+    }
+  end
+
+  rows[#rows + 1] = sep()
+  rows[#rows + 1] = { kind = "label", title = "Telling you things" }
+  rows[#rows + 1] = {
+    kind = "toggle", title = "One a day, after a focus block", on = s.lore ~= false,
+    note = "shipped with him — nothing is fetched",
+    act = function() c.act.toggle("lore") end,
+  }
+  rows[#rows + 1] = {
+    kind = "row", title = "Tell me something now",
+    act = function() c.act.tellMe() end,
+  }
+
   rows[#rows + 1] = sep()
   rows[#rows + 1] = back()
   return rows

@@ -607,5 +607,6 @@ end
 
 require("tests.pages")
 require("tests.teach")
+require("tests.lore")
 
 os.exit(t.report() and 0 or 1)

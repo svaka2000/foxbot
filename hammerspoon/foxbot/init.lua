@@ -27,6 +27,8 @@ local Board    = require("foxbot.menu")
 local Pages    = require("foxbot.pages")
 local Teach    = require("foxbot.teach")
 local Timer    = require("foxbot.timer")
+local Lore     = require("foxbot.lore")
+local Drift    = require("foxbot.drift")
 
 local M = {}
 
@@ -89,6 +91,7 @@ local AWAY_STEPS = { 0, 900, 1800 }
 local AWAY_LABEL = { [0] = "locked or asleep", [900] = "15 min idle", [1800] = "30 min idle" }
 
 local settings, fox, panel, board, bar, watcher, keys, teach, clock
+local lore, drift
 local sessions, ledger, away
 local readTo = 0
 local lastSeen = {}
@@ -344,6 +347,61 @@ local function chase(row)
   })
 end
 
+--- Tell you something. Asked for from the menu, or volunteered once a day.
+local function teachSomething(volunteered)
+  local item = lore and lore:pick()
+  if not item then return end
+
+  local silence, show = Hush.check(settings)
+  -- Asking for one is a request, and a request is answered even at "only when
+  -- needed"; volunteering is interrupting, and interrupting has to earn it.
+  if volunteered and (not show or fox:hidden()) then return end
+
+  if not silence and volunteered then Chime.play(chimeFor("nudge")) end
+  fox:feel("pleased", restingMood())
+  panel:anchorTo(fox:frame(), fox:screen())
+  panel:say({
+    title = item.title,
+    body = item.text,
+    chips = {
+      { label = "another", act = function() teachSomething(false) end },
+    },
+  })
+end
+
+--- Notice you've been somewhere else for a while with something still waiting.
+---
+--- Phrased as an observation rather than an instruction. "You've been in
+--- Discord for twelve minutes" is a fact he can see; "get back to work" is a
+--- judgement he has no standing to make, and it is the reason most tools like
+--- this get turned off within a day.
+local function noticeDrift(why)
+  local silence, show = Hush.check(settings)
+  if not show or fox:hidden() then return end
+
+  local been = Sessions.duration(why.been) or "a while"
+  local waiting = (why.blocked > 0)
+    and (why.blocked == 1 and "one session is waiting on you"
+                          or (why.blocked .. " sessions are waiting on you"))
+    or "your focus block is still running"
+
+  if not silence then Chime.play(chimeFor("nudge")) end
+  fox:feel("asking", restingMood())
+  panel:anchorTo(fox:frame(), fox:screen())
+  panel:say({
+    title = why.app,
+    body = been .. " here, and " .. waiting .. ".",
+    chips = {
+      { label = "on purpose", act = function()
+          -- Not a snooze: you're telling him this app was never a break.
+          drift:mark(why.app, false)
+        end },
+      { label = "thanks", act = function() end },
+    },
+  })
+  drift:spoke(os.time())
+end
+
 --- One note covering everything that happened while you were away.
 local function catchUp(held, since)
   if fox:hidden() then return end
@@ -510,6 +568,12 @@ local function buildPages()
     clock = function() return clock end,
     Timer = Timer,
 
+    -- The app you were in before you opened the menu — his own window is
+    -- ignored by the sampler, so this is still whatever you were actually
+    -- doing.
+    frontApp = function() return drift and drift.app or nil end,
+    isBreak = function(app) return drift and drift:isBreak(app) or false end,
+
     act = {
       toggle = function(name)
         Settings.toggle(settings, name)
@@ -520,6 +584,17 @@ local function buildPages()
         Settings.save(settings)
       end,
       setLevel = function(id) M.setLevel(id) end,
+      stepDrift = function()
+        -- 3, 5, 10, 15, 30 and round. Below three minutes it fires on a
+        -- glance at a message, which is exactly the behaviour that makes
+        -- these things insufferable.
+        local steps = { 180, 300, 600, 900, 1800 }
+        Settings.cycle(settings, "driftAfter", steps)
+      end,
+      markBreak = function(app)
+        if drift then drift:mark(app, not drift:isBreak(app)) end
+      end,
+      tellMe = function() teachSomething(false) end,
       startFocus = function(kind)
         clock:start(kind)
         M.paintBar()
@@ -791,6 +866,17 @@ local function start()
         },
       })
       M.paintBar()
+
+      -- The end of a work block is the one moment in the day he's certain you
+      -- are stopping anyway, which makes it the only place worth volunteering
+      -- something unprompted. Once a day, and never during the block itself.
+      if settings.lore and ended == Timer.WORK and lore then
+        local day = Stats.startOfDay()
+        if not lore:offeredToday(day) then
+          lore:markOffered(os.time())
+          hs.timer.doAfter(2, function() teachSomething(true) end)
+        end
+      end
     end,
   })
 
@@ -828,6 +914,23 @@ local function start()
 
   away = Away.new({ threshold = settings.awayAfter, onReturn = catchUp })
 
+  lore = Lore.new({
+    settings = settings,
+    save = function(current) Settings.save(current) end,
+  })
+
+  drift = Drift.new({
+    settings = settings,
+    save = function(current) Settings.save(current) end,
+    frontmost = function()
+      -- Identity only. The window *title* would say whether Chrome is on the
+      -- docs or on Twitter, and it is behind Screen Recording, which also
+      -- hands over every other window on the display. Not worth it.
+      local app = hs.application.frontmostApplication()
+      return app and app:name() or nil
+    end,
+  })
+
   watcher = hs.pathwatcher.new(DEN, function()
     for _, event in ipairs(drain()) do handle(event) end
   end):start()
@@ -852,6 +955,23 @@ local function start()
     end
 
     if teach then teach:tick() end
+
+    -- Where you are. Sampled every poll rather than on an app-switch watcher,
+    -- because what matters is how long you have been somewhere, not that you
+    -- went there.
+    if drift then
+      drift:sample()
+      -- Never while he's meant to be leaving you alone, and never while you're
+      -- away — a nudge nobody is there to read is one waiting to annoy you the
+      -- moment you sit down.
+      if not (away and away:isAway()) then
+        local why = drift:should(os.time(), Stats.startOfDay(), {
+          focus = clock and clock:kind() or nil,
+          blocked = sessions:waitingCount(),
+        })
+        if why then noticeDrift(why) end
+      end
+    end
     if clock then
       if clock:tick() then M.paintBar() end
       if clock:running() then M.paintBar() end

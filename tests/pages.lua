@@ -67,6 +67,8 @@ local function crowded(overrides)
     keyOf = function(e) return e.session_id or e.session end,
     restingMood = function() return "running" end,
     chimeFor = function() return "Hero" end,
+    frontApp = function() return "Discord" end,
+    isBreak = function() return true end,
 
     Settings = Settings,
     Sessions = Sessions,
@@ -125,6 +127,8 @@ local PAGES = {
   { "wardrobe", Pages.MAX_PAGE },
   { "about", Pages.MAX_PAGE },
   { "focus", Pages.MAX_PAGE },
+  { "attention", Pages.MAX_PAGE },
+  { "notes", Pages.MAX_PAGE },
 }
 
 local tall = {}
@@ -169,7 +173,7 @@ end
 check("every row is well formed", #bad, 0)
 if #bad > 0 then for _, s in ipairs(bad) do print("     " .. s) end end
 ok("the segment control is used", (kinds.segment or 0) >= 1)
-ok("every page can be left", (kinds.back or 0) >= 13)
+ok("every page can be left", (kinds.back or 0) >= 15)
 
 -- ------------------------------------------------------------ list capping
 

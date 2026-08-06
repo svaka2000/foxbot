@@ -88,6 +88,21 @@ local SCHEMA = {
   taught      = 0,
   taughtTries = 0,
 
+  -- Noticing you've wandered off. Off by default: a tool that starts
+  -- commenting on what apps you open, uninvited, is a tool you uninstall.
+  drift       = false,
+  driftAfter  = 5 * 60,
+  driftApps   = {},          -- app -> true/false, overriding Drift.BREAKS
+  driftAt     = 0,
+  driftDay    = 0,
+  driftCount  = 0,
+
+  -- Teaching you something. `loreSeen` is the indices already drawn from the
+  -- pack this cycle, so nothing repeats until all of it has been seen.
+  lore        = true,
+  loreSeen    = {},
+  loreOn      = 0,           -- start-of-day he last volunteered one
+
   perProject  = {},          -- folder -> { mute = true, voice = "..." }
   keepDays    = 30,
 }
