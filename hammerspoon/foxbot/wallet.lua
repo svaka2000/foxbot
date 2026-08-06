@@ -198,13 +198,6 @@ function Wallet:finishedFocus(startOfDay)
   return self:earn(Wallet.FOCUS_BLOCK, startOfDay)
 end
 
---- Coming back day after day, worth a little more each time, up to a week.
-function Wallet:streakBonus(days, startOfDay)
-  local worth = math.min(math.max(0, days or 0), Wallet.STREAK_CAP)
-  if worth <= 0 then return 0 end
-  return self:earn(worth, startOfDay)
-end
-
 -- ------------------------------------------------------------------ spending
 
 function Wallet:owns(id)
@@ -231,17 +224,6 @@ function Wallet:buy(id, price)
     self.balance = self.balance + price
     self.owned[id] = nil
     return false, "unsaved"
-  end
-  return true
-end
-
---- Ownership without spending, for things unlocked by other means.
-function Wallet:grant(id)
-  if self:owns(id) then return false end
-  self.owned[id] = true
-  if not self:save() then
-    self.owned[id] = nil
-    return false
   end
   return true
 end

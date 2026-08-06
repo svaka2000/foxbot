@@ -204,20 +204,6 @@ function Palette.unlock(name)
   return true
 end
 
---- Every palette that exists, bought or not — the shop needs to name them.
-function Palette.every()
-  local out = {}
-  for _, name in ipairs(Palette.order) do out[#out + 1] = name end
-  for _, name in ipairs(Palette.LOCKED) do
-    local listed = false
-    for _, have in ipairs(out) do
-      if have == name then listed = true break end
-    end
-    if not listed then out[#out + 1] = name end
-  end
-  return out
-end
-
 function Palette.colours()
   return skins[Palette.skin] or skins.dusk
 end

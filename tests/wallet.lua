@@ -101,9 +101,6 @@ do
   local _, second = w4:credit({ tokens = 0, at = 1100, streak = 90 }, 1000)
   check("and only once a day", second.streak, nil)
 
-  check("a streak pays a little", w:streakBonus(3, day), 3)
-  check("and is capped at a week", w:streakBonus(400, day + 86400), Wallet.STREAK_CAP)
-  check("no streak, nothing", w:streakBonus(0, day + 172800), 0)
 end
 
 -- ------------------------------------------------------------------ spending
