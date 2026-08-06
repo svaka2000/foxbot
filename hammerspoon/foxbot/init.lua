@@ -705,9 +705,12 @@ local function buildPages()
     end,
 
     remote = function()
+      -- No key means the row says so instead of what it would send, so there
+      -- is nothing to walk a folder for. Which is almost everyone, almost
+      -- always.
+      if not Remote.available() then return { ready = false } end
       local folder = (recent[1] or {}).cwd
-      return { ready = Remote.available(),
-               sends = Remote.describe(Remote.languages(folder)) }
+      return { ready = true, sends = Remote.describe(Remote.languages(folder)) }
     end,
 
     act = {

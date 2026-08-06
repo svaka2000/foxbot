@@ -66,10 +66,21 @@ function Remote.available()
   return Remote.key() ~= nil
 end
 
+-- Walking a folder means a subprocess, and the menu row that discloses what
+-- would be sent is rebuilt on every hover. Without this, moving the mouse down
+-- the Attention page forks `find` once per frame.
+local seen = {}
+
 --- Which languages are in a folder. Extensions only, counted, top few —
 --- deliberately the least identifying thing that is still useful.
 function Remote.languages(folder, ls)
   if not folder or folder == "" then return {} end
+
+  -- Captured before the default is filled in: an injected lister is a test,
+  -- and tests must not read or write the cache.
+  local real = (ls == nil)
+  if real and seen[folder] then return seen[folder] end
+
   ls = ls or function(path)
     local out = {}
     local pipe = io.popen("/usr/bin/find " .. ("%q"):format(path)
@@ -95,7 +106,15 @@ function Remote.languages(folder, ls)
 
   local top = {}
   for i = 1, math.min(4, #order) do top[i] = order[i] end
+
+  if real then seen[folder] = top end
   return top
+end
+
+--- Forget what was found, so a project that gained a language is noticed. The
+--- cache is for one sitting, not for the life of the process.
+function Remote.forget()
+  seen = {}
 end
 
 --- Exactly what would be sent, as a string, for the "what does this send?"

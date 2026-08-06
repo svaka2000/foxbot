@@ -75,6 +75,24 @@ do
   check("the description is stable", again, first)
 end
 
+do
+  -- Walking a folder forks `find`, and the menu row that shows the disclosure
+  -- is rebuilt on every hover. Without a cache, moving the mouse down that page
+  -- forks a subprocess per frame.
+  Remote.forget()
+  local walks = 0
+  local function counting()
+    walks = walks + 1
+    return { "/p/a.lua" }
+  end
+
+  -- An injected lister is a test, and must neither read nor write the cache,
+  -- or one test would poison the next.
+  Remote.languages("/p", counting)
+  Remote.languages("/p", counting)
+  check("an injected lister always runs", walks, 2)
+end
+
 -- ------------------------------------------------------------------ tidying
 
 do
