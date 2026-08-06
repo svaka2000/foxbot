@@ -15,6 +15,14 @@ sensitive place to sit, so here is exactly what it touches.
 ## What it writes
 
 - `~/.claude/foxbot/inbox.jsonl` — one line per event, mode `0600`.
+- `~/.claude/foxbot/debug.log` — click-path failures with a stack trace, so a
+  callback that dies at 4am in a console nobody has open leaves a record.
+  Rotated at 64KB. Contains no session content.
+- `~/.claude/foxbot/command` — written by `foxbot show` / `hide` / `menu` and
+  deleted the moment it is read. **Four fixed words, no arguments, and no code
+  path that evaluates anything.** It exists because the panel is how you reach
+  Hide and Quit, and needing the panel to fix the panel is a trap. Anything
+  able to write here can already write the inbox and your Hammerspoon config.
 - `~/.claude/foxbot/ledger.jsonl` — finished turns, for the numbers.
 - `~/.claude/foxbot/work/` — a small per-session scratch file used to coalesce
   progress notes, deleted when the turn ends.

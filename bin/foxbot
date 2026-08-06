@@ -9,9 +9,14 @@
     foxbot projects       every project, ranked by time
     foxbot donuts         what you've earned and what it buys
     foxbot export [--csv] the whole history on stdout
+    foxbot show           bring him back if he's hidden
+    foxbot hide           put him away
+    foxbot menu           open the control panel
     foxbot doctor         check the install
 
-Reads the same files the pet does. Never writes anything.
+Reads the same files the pet does. The only thing it writes is a one-word
+command file for show/hide/menu — the way back when the panel itself is
+the thing that is broken.
 """
 
 import json
@@ -23,6 +28,7 @@ from collections import OrderedDict
 DIR = os.path.expanduser("~/.claude/foxbot")
 LEDGER = os.path.join(DIR, "ledger.jsonl")
 WALLET = os.path.join(DIR, "wallet.json")
+ORDERS = os.path.join(DIR, "command")
 
 # Mirrors Wallet.A_DAY in hammerspoon/foxbot/wallet.lua. tests/wallet.lua
 # fails if the two ever drift apart.
@@ -347,6 +353,32 @@ def cmd_donuts(history, args):
     print()
 
 
+def order(word):
+    """Ask the running fox to do one thing. He is watching this folder already."""
+    if not os.path.isdir(DIR):
+        print("foxbot: he doesn't seem to be installed")
+        return 1
+    with open(ORDERS, "w") as f:
+        f.write(word + "\n")
+    if not os.system("pgrep -x Hammerspoon >/dev/null 2>&1") == 0:
+        print(dim("  Hammerspoon isn't running — he'll pick this up when it starts"))
+        return 0
+    print(f"  {green('ok')}  {word}")
+    return 0
+
+
+def cmd_show(history, args):
+    return order("show")
+
+
+def cmd_hide(history, args):
+    return order("hide")
+
+
+def cmd_menu(history, args):
+    return order("menu")
+
+
 def cmd_doctor(history, args):
     print(f"\n{bold('foxbot')} {dim('·')} {accent('doctor')}\n")
 
@@ -375,6 +407,17 @@ def cmd_doctor(history, args):
 
     running = os.system("pgrep -x Hammerspoon >/dev/null 2>&1") == 0
     check("Hammerspoon running", running)
+
+    hidden = False
+    try:
+        out = os.popen("defaults read org.hammerspoon.Hammerspoon foxbot.settings "
+                       "2>/dev/null").read()
+        hidden = "hidden = 1" in out
+    except Exception:
+        pass
+    # Hidden and broken look exactly the same from the outside.
+    check("fox visible", not hidden,
+          "hidden — run: foxbot show" if hidden else "")
 
     check("ledger readable", os.path.exists(LEDGER),
           f"{len(history)} turns recorded" if history else "nothing recorded yet")
@@ -405,6 +448,7 @@ COMMANDS = {
     "today": cmd_today, "week": cmd_week, "now": cmd_now,
     "recent": cmd_recent, "projects": cmd_projects,
     "export": cmd_export, "doctor": cmd_doctor,
+    "show": cmd_show, "hide": cmd_hide, "menu": cmd_menu,
     "donuts": cmd_donuts,
 }
 

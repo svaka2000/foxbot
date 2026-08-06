@@ -118,7 +118,8 @@ the bottom to open the folder, open it in your editor, or copy the summary.
 | **Catch-up** | one summary when you come back, not eleven stale notes |
 | **Per project** | mute or re-voice a noisy one |
 | **Your own sprite** | drop a PNG in `assets/`, one per mood if you like |
-| **A CLI** | `foxbot today`, `now`, `week`, `doctor` |
+| **A CLI** | `foxbot today`, `now`, `week`, `donuts`, `doctor` |
+| **Always recoverable** | `foxbot show` brings him back without touching the panel |
 
 ## The moods
 

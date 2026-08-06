@@ -32,6 +32,7 @@ local Drift    = require("foxbot.drift")
 local Remote   = require("foxbot.remote")
 local Wallet   = require("foxbot.wallet")
 local Shop     = require("foxbot.shop")
+local Log      = require("foxbot.log")
 
 local M = {}
 
@@ -40,6 +41,7 @@ local DEN = HOME .. "/.claude/foxbot"
 local INBOX = DEN .. "/inbox.jsonl"
 local LEDGER = DEN .. "/ledger.jsonl"
 local WALLET = DEN .. "/wallet.json"
+local ORDERS = DEN .. "/command"
 
 local REPEAT_GUARD = 5      -- seconds; ignore an identical event twice over
 local RECALL = 12           -- how many sessions the menu remembers
@@ -134,6 +136,38 @@ local function drain()
     end
   end
   return events
+end
+
+--- One-word instructions from the CLI.
+---
+--- Everything about him is reachable from the panel, which is fine right up
+--- until the panel is the thing that is broken -- and then the only way back
+--- was to reload Hammerspoon, which is not a thing anyone should have to know.
+--- `foxbot show` drops a word in a file, and the watcher that is already
+--- tailing this folder picks it up.
+---
+--- Deliberately not a general command channel: four fixed words, no arguments,
+--- no code. Anything that can write here can already write to the inbox.
+local function obey()
+  local file = io.open(ORDERS, "r")
+  if not file then return end
+  local word = (file:read("*l") or ""):gsub("%s+", "")
+  file:close()
+  os.remove(ORDERS)
+  if word == "" then return end
+
+  Log.say("cli", word)
+  if word == "show" then
+    if fox:hidden() then M.toggle() end
+  elseif word == "hide" then
+    if not fox:hidden() then M.toggle() end
+  elseif word == "menu" then
+    M.openMenu()
+  elseif word == "reload" then
+    hs.reload()
+  else
+    Log.say("cli", "unknown: " .. word)
+  end
 end
 
 -- ------------------------------------------------------------------ notes
@@ -820,13 +854,64 @@ local function buildPages()
 end
 
 
+--- Open the control panel.
+---
+--- Every way in goes through here -- the fox, the menu bar item, the hotkey --
+--- so anything that throws in here takes away the only way to reach Quit,
+--- Hide and the settings. It is guarded and logged for exactly that reason.
 function M.openMenu(at)
   if panel then panel:anchorTo(fox:frame(), fox:screen()) end
-  if board:isOpen() then board:close() return end
+
+  -- "Open" has to mean "on screen and clickable". A canvas that exists but
+  -- isn't showing -- because open() threw partway, or something tore it down
+  -- underneath us -- would otherwise make every click a no-op close, and the
+  -- panel would be unreachable until Hammerspoon was reloaded.
+  local showing = board:isOpen() and board:visible()
+  if board:isOpen() and not showing then
+    Log.say("menu", "canvas existed but was not showing; forcing it closed")
+    board:close()
+  elseif showing then
+    board:close()
+    return
+  end
+
   if teach then teach:saw("menu.open") end
   local home = function() return pages:home() end
-  board:open(home(), at or hs.mouse.absolutePosition(), fox:screen())
-  board:showing(home)
+
+  local point = at or hs.mouse.absolutePosition()
+  local screen = fox:screen()
+  local ok = Log.guard("menu", function()
+    board:open(home(), point, screen)
+    board:showing(home)
+  end)
+
+  if not ok or not board:visible() then
+    Log.say("menu", string.format(
+      "panel did not appear (built=%s) point=%s,%s screen=%s",
+      tostring(ok), tostring(point and point.x), tostring(point and point.y),
+      screen and screen:name() or "nil"))
+    board:close()
+    M.escapeHatch()
+  end
+end
+
+--- The panel of last resort.
+---
+--- If the real one cannot be built or cannot be shown, this still can: three
+--- rows, no state, no pages, nothing that can fail. Being unable to quit a
+--- thing that sits on top of your screen is the worst way this can break, so
+--- there is always something.
+function M.escapeHatch()
+  Log.guard("hatch", function()
+    board:open({
+      { kind = "label", title = "Something went wrong" },
+      { kind = "row", title = "Hide foxbot", keys = "⌃⌥⌘F",
+        act = function() M.toggle() end },
+      { kind = "row", title = "Reload", act = function() hs.reload() end },
+      { kind = "row", title = "Quit foxbot", tone = "broken",
+        act = function() hs.application.get("Hammerspoon"):kill() end },
+    }, hs.mouse.absolutePosition(), fox:screen())
+  end)
 end
 
 --- The three-way switch on the home page: everything, silent, or paused.
@@ -858,6 +943,16 @@ function M.paintBar()
     return
   end
 
+  -- Hidden is worth saying too, and for the same reason -- more so, in fact.
+  -- A hidden fox is invisible by definition, so clicking where he used to be
+  -- does nothing, and the only thing left on screen giving any account of
+  -- himself is this. Without it, "hidden" and "broken" look identical.
+  if fox and fox:hidden() then
+    bar:setTitle("·")
+    bar:setTooltip("Foxbot — hidden. Click here, or ⌃⌥⌘F, to bring him back.")
+    return
+  end
+
   -- Paused is worth saying in the tooltip, so a silent fox never looks broken.
   local backIn = Hush.backIn(settings)
   if backIn then
@@ -881,8 +976,18 @@ end
 -- ----------------------------------------------------------------- controls
 
 function M.toggle()
-  if fox:hidden() then fox:show() else panel:clear() fox:hide() end
+  if fox:hidden() then
+    fox:show()
+  else
+    panel:clear()
+    fox:hide()
+    -- Said out loud, once, at the moment he vanishes. Hiding him is easy to do
+    -- by accident with a three-key shortcut, and the way back is not
+    -- discoverable from an empty patch of screen.
+    hs.alert.show("foxbot hidden — ⌃⌥⌘F or the menu bar icon to bring him back", 3)
+  end
   Settings.save(settings)
+  M.paintBar()
 end
 
 function M.nextSkin()
@@ -1092,7 +1197,9 @@ local function start()
   bar = hs.menubar.new()
   local icon = hs.image.imageFromPath(Coats.path(settings.coat))
   if icon then bar:setIcon(icon:setSize({ w = 20, h = 16 }), false) end
-  bar:setClickCallback(function() M.openMenu() end)
+  bar:setClickCallback(function()
+    Log.guard("bar", function() M.openMenu() end)
+  end)
   M.paintBar()
 
   away = Away.new({ threshold = settings.awayAfter, onReturn = catchUp })
@@ -1116,6 +1223,7 @@ local function start()
 
   watcher = hs.pathwatcher.new(DEN, function()
     for _, event in ipairs(drain()) do handle(event) end
+    Log.guard("cli", obey)
   end):start()
 
   keys = {
@@ -1127,6 +1235,7 @@ local function start()
   -- retires sessions which never reported finishing.
   M.pulse = hs.timer.doEvery(3, function()
     for _, event in ipairs(drain()) do handle(event) end
+    Log.guard("cli", obey)
     away:check()
 
     -- Ambient moods — asleep, dozing, worn out — arrive because time passes,

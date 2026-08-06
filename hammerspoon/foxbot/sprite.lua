@@ -6,6 +6,7 @@
 --- front of that and drain away. Adding a mood is a table entry, not new code.
 
 local Palette = require("foxbot.palette")
+local Log = require("foxbot.log")
 local Mood    = require("foxbot.mood")
 local Coats   = require("foxbot.coats")
 
@@ -278,9 +279,13 @@ function Sprite:release(travelled)
   if self.drag then self.drag:stop() self.drag = nil end
 
   if travelled < CLICK_SLOP then
-    if self.onTap then self.onTap() end
+    Log.say("fox", "tap (moved " .. tostring(travelled) .. ")")
+    -- A throw in here used to take the whole timer callback with it, leaving
+    -- the fox looking dead until Hammerspoon was reloaded.
+    if self.onTap then Log.guard("fox", self.onTap) end
     return
   end
+  Log.say("fox", "drag (moved " .. tostring(travelled) .. ")")
 
   self.settings.x, self.settings.y = self.x, self.y
   if self.onMoved then self.onMoved(self.x, self.y) end

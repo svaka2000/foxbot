@@ -439,6 +439,13 @@ function Menu:open(rows, point, screen)
   end)
 
   self.canvas:show(FADE)
+  -- Set last, and only if everything above it survived. Everything between
+  -- `hs.canvas.new` and here can throw -- paint() walks every row -- and the
+  -- canvas exists for all of it. Without this, a throw in the middle left a
+  -- canvas that isOpen() called open and the user could not see, so every
+  -- later click took the "already open, close it" branch and returned. The
+  -- panel then stayed unreachable until Hammerspoon was reloaded.
+  self.shown = true
 end
 
 --- Remember how to rebuild the page currently showing, so a toggle can redraw
@@ -448,6 +455,7 @@ function Menu:showing(builder)
 end
 
 function Menu:close()
+  self.shown = false
   if self.canvas then
     local canvas = self.canvas
     self.canvas = nil
@@ -463,6 +471,19 @@ end
 
 function Menu:isOpen()
   return self.canvas ~= nil
+end
+
+--- Actually on screen, as opposed to merely existing.
+---
+--- Deliberately does NOT trust `isShowing()` on its own. It answered true for
+--- a canvas that was not on screen, so it is used only as an extra way to say
+--- no -- `self.shown`, which we set ourselves once show() has actually been
+--- reached, is the part that has to be true.
+function Menu:visible()
+  if not self.canvas or not self.shown then return false end
+  local ok, showing = pcall(function() return self.canvas:isShowing() end)
+  if ok and showing == false then return false end
+  return true
 end
 
 return Menu
