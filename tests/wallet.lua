@@ -249,5 +249,21 @@ do
   if #missing > 0 then for _, s in ipairs(missing) do print("     " .. s) end end
 end
 
+-- --------------------------------------------------- the CLI says the same
+
+do
+  -- The CLI prints "today: 7 of 60" from its own constant, because it reads
+  -- the wallet file rather than running any of this. Two copies of a number
+  -- is exactly how a tool ends up confidently reporting the wrong ceiling.
+  local file = io.open("bin/foxbot", "r")
+  if file then
+    local text = file:read("*a") file:close()
+    local stated = tonumber(text:match("A_DAY%s*=%s*(%d+)"))
+    check("the CLI knows the same daily ceiling", stated, Wallet.A_DAY)
+  else
+    ok("the CLI is where it was expected", false)
+  end
+end
+
 os.remove(PATH)
 return true

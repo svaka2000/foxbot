@@ -76,12 +76,13 @@ rm -f "$HOME/.local/bin/foxbot"
 say "done"
 
 if [ "$EVERYTHING" -eq 1 ]; then
-  echo "==> Removing the ledger and settings"
+  echo "==> Removing the ledger, the wallet, your API key and settings"
   rm -rf "$CLAUDE/foxbot"
   defaults delete org.hammerspoon.Hammerspoon foxbot.settings 2>/dev/null || true
   say "done"
 else
-  echo "==> Keeping ~/.claude/foxbot — pass --all to delete it"
+  echo "==> Keeping ~/.claude/foxbot — the ledger, your donuts and any"
+  echo "    API key you put there. Pass --all to delete it."
 fi
 
 cat <<'DONE'

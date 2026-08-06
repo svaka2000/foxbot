@@ -7,6 +7,7 @@
     foxbot now            sessions running right now
     foxbot recent [n]     the last n sessions (default 15)
     foxbot projects       every project, ranked by time
+    foxbot donuts         what you've earned and what it buys
     foxbot export [--csv] the whole history on stdout
     foxbot doctor         check the install
 
@@ -21,6 +22,11 @@ from collections import OrderedDict
 
 DIR = os.path.expanduser("~/.claude/foxbot")
 LEDGER = os.path.join(DIR, "ledger.jsonl")
+WALLET = os.path.join(DIR, "wallet.json")
+
+# Mirrors Wallet.A_DAY in hammerspoon/foxbot/wallet.lua. tests/wallet.lua
+# fails if the two ever drift apart.
+A_DAY = 60
 INBOX = os.path.join(DIR, "inbox.jsonl")
 SETTINGS = os.path.expanduser("~/.claude/settings.json")
 HOOK = os.path.expanduser("~/.claude/hooks/foxbot.sh")
@@ -278,6 +284,49 @@ def cmd_export(history, args):
             print(json.dumps(row))
 
 
+def wallet():
+    """The purse, or None. Read-only, like everything else here."""
+    try:
+        with open(WALLET) as f:
+            saved = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(saved, dict):
+        return None
+    return saved
+
+
+def cmd_donuts(history, args):
+    print(f"\n{bold('foxbot')} {dim('·')} {accent('donuts')}\n")
+
+    purse = wallet()
+    if not purse:
+        print(dim("  none yet — finish a turn and he starts counting\n"))
+        return
+
+    balance = purse.get("balance", 0)
+    earned = purse.get("earnedTotal", 0)
+    day = purse.get("day") or {}
+    today = day.get("earned", 0) if day.get("on", 0) >= start_of_day() else 0
+
+    field("balance", balance, green)
+    field("today", f"{today} of {A_DAY}")
+    field("earned", earned)
+
+    owned = purse.get("owned") or {}
+    # An empty Lua table encodes as [], so this is a list on a fresh wallet.
+    names = sorted(owned.keys()) if isinstance(owned, dict) else []
+    print()
+    if names:
+        print(f"  {bold('owned')}")
+        for name in names:
+            kind, _, rest = name.partition(".")
+            print(f"    {accent('·')} {rest or name} {dim(kind if rest else '')}")
+    else:
+        print(dim("  nothing bought yet"))
+    print()
+
+
 def cmd_doctor(history, args):
     print(f"\n{bold('foxbot')} {dim('·')} {accent('doctor')}\n")
 
@@ -310,6 +359,19 @@ def cmd_doctor(history, args):
     check("ledger readable", os.path.exists(LEDGER),
           f"{len(history)} turns recorded" if history else "nothing recorded yet")
 
+    purse = wallet()
+    check("wallet readable", purse is not None or not os.path.exists(WALLET),
+          f"{purse['balance']} donuts" if purse else "not started yet")
+
+    # Says out loud whether anything can reach the network, so you never have to
+    # take the README's word for it.
+    key = os.path.join(DIR, "groq.key")
+    if os.path.exists(key):
+        mode = oct(os.stat(key).st_mode & 0o777)[2:]
+        check("network", True, f"a key is present ({mode}); off unless switched on")
+    else:
+        check("network", True, "no key — nothing can leave this machine")
+
     print()
 
 
@@ -317,6 +379,7 @@ COMMANDS = {
     "today": cmd_today, "week": cmd_week, "now": cmd_now,
     "recent": cmd_recent, "projects": cmd_projects,
     "export": cmd_export, "doctor": cmd_doctor,
+    "donuts": cmd_donuts,
 }
 
 
