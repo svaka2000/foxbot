@@ -327,7 +327,7 @@ function Panel:say(note)
   self.notes[#self.notes + 1] = note
 
   -- Two on screen is a stack; three is a wall.
-  while #self.notes > MOST_AT_ONCE do self:drop(self.notes[1]) end
+  while #self.notes > MOST_AT_ONCE do self:drop(self.notes[1], "evicted") end
 
   -- And never let the column grow past the screen either.
   local limit = (self.screen and self.screen.h or 900) - 60
@@ -338,7 +338,7 @@ function Panel:say(note)
   while #self.notes > 1 and total > limit do
     local oldest = self.notes[1]
     total = total - oldest.plan.height - Palette.leading
-    self:drop(oldest)
+    self:drop(oldest, "evicted")
   end
 
   self:render()
@@ -346,7 +346,11 @@ function Panel:say(note)
   return note
 end
 
-function Panel:drop(note)
+--- `why` is one of: "expired" (its own timer), "evicted" (pushed out by newer
+--- notes), "cleared" (the panel was emptied), "cross" (dismissed), "answered"
+--- (a button or the body was clicked). The tutorial cares about the difference
+--- between being ignored and being answered.
+function Panel:drop(note, why)
   for index, held in ipairs(self.notes) do
     if held == note then
       table.remove(self.notes, index)
@@ -356,15 +360,16 @@ function Panel:drop(note)
   if note.expires then note.expires:stop() note.expires = nil end
   note.typing = false
   if self.hot and self.hot.note == note then self.hot = nil end
+  if note.onGone then note.onGone(why or "expired") end
 end
 
-function Panel:dismiss(note)
-  self:drop(note)
+function Panel:dismiss(note, why)
+  self:drop(note, why)
   self:render()
 end
 
 function Panel:clear()
-  for _, note in ipairs({ table.unpack(self.notes) }) do self:drop(note) end
+  for _, note in ipairs({ table.unpack(self.notes) }) do self:drop(note, "cleared") end
   self.notes = {}
   if self.typer then self.typer:stop() self.typer = nil end
   self:teardown()
@@ -439,7 +444,7 @@ function Panel:wire()
         return
       end
 
-      self:dismiss(note)
+      self:dismiss(note, found.cross and "cross" or "answered")
       if found.act then
         found.act()
       elseif not found.cross and note.onOpen then

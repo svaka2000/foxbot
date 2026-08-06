@@ -73,6 +73,12 @@ local SCHEMA = {
   -- unanswered questions
   remind      = true,
 
+  -- The tour. `taught` is the Teach.VERSION seen through to an ending, so a
+  -- future tour can be shown again by bumping it. Read as a number, never as a
+  -- boolean — 0 is truthy in Lua.
+  taught      = 0,
+  taughtTries = 0,
+
   perProject  = {},          -- folder -> { mute = true, voice = "..." }
   keepDays    = 30,
 }

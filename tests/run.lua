@@ -606,5 +606,6 @@ end
 
 
 require("tests.pages")
+require("tests.teach")
 
 os.exit(t.report() and 0 or 1)

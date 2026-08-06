@@ -25,6 +25,7 @@ local Stats    = require("foxbot.stats")
 local Away     = require("foxbot.away")
 local Board    = require("foxbot.menu")
 local Pages    = require("foxbot.pages")
+local Teach    = require("foxbot.teach")
 
 local M = {}
 
@@ -86,7 +87,7 @@ local CHATTY_NOTE = {
 local AWAY_STEPS = { 0, 900, 1800 }
 local AWAY_LABEL = { [0] = "locked or asleep", [900] = "15 min idle", [1800] = "30 min idle" }
 
-local settings, fox, panel, board, bar, watcher, keys
+local settings, fox, panel, board, bar, watcher, keys, teach
 local sessions, ledger, away
 local readTo = 0
 local lastSeen = {}
@@ -429,6 +430,8 @@ local function handle(event)
 
   if kind == "ask" or kind == "idle" then
     sessions:wait(event)
+    -- A real question outranks a tutorial card.
+    if teach then teach:standDown() end
   else
     sessions:answered(event)
   end
@@ -502,6 +505,8 @@ local function buildPages()
     chimeEvents = CHIME_EVENTS,
 
     -- Every action the menu can take. Pages never do anything themselves.
+    tourRows = function() return teach and teach:menuRows() or {} end,
+
     act = {
       toggle = function(name)
         Settings.toggle(settings, name)
@@ -566,6 +571,7 @@ end
 function M.openMenu(at)
   if panel then panel:anchorTo(fox:frame(), fox:screen()) end
   if board:isOpen() then board:close() return end
+  if teach then teach:saw("menu.open") end
   local home = function() return pages:home() end
   board:open(home(), at or hs.mouse.absolutePosition(), fox:screen())
   board:showing(home)
@@ -658,16 +664,12 @@ function M.state()
   }
 end
 
---- Walk through what he can do. Replaced by the real tour shortly; for now it
---- at least does something honest rather than erroring from the menu.
+--- Show someone around. Also reachable from the panel, for anyone who wants it
+--- again or who waved it away the first time.
 function M.tour()
+  if not teach then return end
   panel:anchorTo(fox:frame(), fox:screen())
-  panel:say({
-    title = "foxbot",
-    body = "the tour isn't built yet — click me any time for the panel,"
-           .. " and drag me anywhere you like.",
-    hold = 10,
-  })
+  teach:begin(true)
 end
 
 -- -------------------------------------------------------------------- demos
@@ -737,6 +739,7 @@ local function start()
     onMoved = function()
       Settings.save(settings)
       panel:anchorTo(fox:frame(), fox:screen())
+      if teach then teach:saw("dragged") end
     end,
   })
   if not fox then return end
@@ -745,6 +748,28 @@ local function start()
   panel = Panel.new()
   panel:types(settings.typing)
   board = Board.new()
+  teach = Teach.new({
+    settings = settings,
+    save = function(current) Settings.save(current) end,
+    panel = {
+      say = function(note) return panel:say(note) end,
+      count = function() return panel:count() end,
+    },
+    fox = {
+      hidden = function() return fox:hidden() end,
+      startle = function() fox:startle() end,
+    },
+    board = { isOpen = function() return board:isOpen() end },
+    openMenu = function() M.openMenu() end,
+    mayShow = function()
+      local _, show = Hush.check(settings)
+      return show
+    end,
+    isAway = function() return away and away:isAway() or false end,
+    waiting = function() return sessions:waitingCount() end,
+    sample = function() M.demo() end,
+  })
+
   -- After everything it closes over exists.
   pages = buildPages()
   panel:anchorTo(fox:frame(), fox:screen())
@@ -779,6 +804,8 @@ local function start()
     if settings.remind then
       for _, row in ipairs(sessions:overdue()) do chase(row) end
     end
+
+    if teach then teach:tick() end
 
     if sessions:sweep() > 0 then
       refeel()

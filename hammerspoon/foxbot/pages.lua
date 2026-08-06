@@ -103,7 +103,7 @@ function Pages:home()
   local c = self.ctx
   local level = Pages.level(c.settings)
 
-  return {
+  local rows = {
     self:statusRow(true),
     sep(),
     self:statsRow(true),
@@ -123,6 +123,13 @@ function Pages:home()
       title = c.fox:hidden() and "Show foxbot" or "Hide foxbot",
       keys = "⌃⌥⌘F", act = c.act.toggleFox },
   }
+
+  -- While the tour is running it gets its own two rows here, so the panel
+  -- itself can carry it forward or call it off.
+  for _, row in ipairs(c.tourRows and c.tourRows() or {}) do
+    rows[#rows + 1] = row
+  end
+  return rows
 end
 
 -- --------------------------------------------------------------- what's on
