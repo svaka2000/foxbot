@@ -40,9 +40,29 @@ function Hush.presenting()
   return nil
 end
 
+--- Is he paused, and until when?
+function Hush.paused(settings, now)
+  local until_ = settings.pauseUntil or 0
+  now = now or os.time()
+  if until_ <= now then return false end
+  return true, until_
+end
+
+--- "back in 12m", for the menu bar tooltip.
+function Hush.backIn(settings, now)
+  local paused, until_ = Hush.paused(settings, now)
+  if not paused then return nil end
+  local left = until_ - (now or os.time())
+  if left < 60 then return "back in a moment" end
+  return "back in " .. math.ceil(left / 60) .. "m"
+end
+
 --- Should this be silenced, and should the note still appear?
 --- Returns (silence, show, why).
 function Hush.check(settings, when)
+  -- Paused outranks everything: it is the button you press when you want it
+  -- to stop right now.
+  if Hush.paused(settings, when) then return true, false, "paused" end
   if settings.quiet then return true, true, "muted" end
 
   local presenting = Hush.presenting()

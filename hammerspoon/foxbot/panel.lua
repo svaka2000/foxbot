@@ -25,7 +25,13 @@ local MOST_AT_ONCE = 2
 local TICK = 1 / 30
 
 function Panel.new()
-  return setmetatable({ notes = {}, spots = {}, hot = nil }, Panel)
+  return setmetatable({ notes = {}, spots = {}, hot = nil, typeOut = true }, Panel)
+end
+
+--- Whether notes reveal themselves letter by letter. The panel is told; it
+--- never reads settings itself.
+function Panel:types(on)
+  self.typeOut = on ~= false
 end
 
 -- ------------------------------------------------------------------ drawing
@@ -307,7 +313,7 @@ function Panel:say(note)
 
   -- A catch-up summary shouldn't make you sit through it typing, and neither
   -- should anything with nothing to type.
-  if note.instant or note.total == 0 or Palette.typeRate <= 0 then
+  if note.instant or note.total == 0 or not self.typeOut or Palette.typeRate <= 0 then
     note.typed, note.typing = note.total, false
     note.expires = hs.timer.doAfter(note.hold or Palette.linger, function()
       self:dismiss(note)

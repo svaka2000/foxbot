@@ -605,4 +605,6 @@ do
 end
 
 
+require("tests.pages")
+
 os.exit(t.report() and 0 or 1)

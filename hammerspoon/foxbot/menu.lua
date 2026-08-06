@@ -27,6 +27,7 @@ local RADIUS = 14
 local H = {                   -- row heights
   status = 52, stats = 46, label = 26, sep = 11,
   row = 32, toggle = 32, choice = 32, into = 32, back = 34,
+  segment = 50, stepper = 32,
 }
 local NOTE_EXTRA = 15         -- extra height when a row carries a note
 
@@ -70,7 +71,30 @@ function Menu:paint()
   self.hits = {}
   local y = PAD
 
-  for index, row in ipairs(self.rows) do
+  -- The status line and the stats strip double as navigation. A row carrying a
+  -- page gets a chevron, a hover wash and a hit target, drawn underneath its
+  -- own content so it reads as one thing.
+  local index          -- set by the loop below; captured here
+  local function door(row, top, height, hot)
+    if not row.page then return end
+    self.hits[#self.hits + 1] = { index = index, y = top, h = height - 2, row = row }
+    if hot then
+      add({
+        type = "rectangle", action = "fill",
+        roundedRectRadii = { xRadius = 8, yRadius = 8 },
+        fillColor = c.glow,
+        frame = { x = INSET - 4, y = top - 2, w = W - (INSET - 4) * 2, h = height },
+      })
+    end
+    add({
+      type = "text",
+      text = text("›", Palette.head + 3, hot and c.fur or c.faded, "right"),
+      frame = { x = W - INSET - 12, y = top + height / 2 - 13, w = 12, h = 22 },
+    })
+  end
+
+  for _index, row in ipairs(self.rows) do
+    index = _index
     local h = heightOf(row)
     local kind = row.kind or "row"
     local hot = (self.hot == index)
@@ -89,6 +113,7 @@ function Menu:paint()
       })
 
     elseif kind == "status" then
+      door(row, y, h, hot)
       -- A dot the colour of whatever he's feeling, then the headline.
       local dot = c[row.tone or "faded"] or c.faded
       add({
@@ -108,6 +133,7 @@ function Menu:paint()
       end
 
     elseif kind == "stats" then
+      door(row, y, h, hot)
       -- Three figures across, value over label.
       local slot = (W - INSET * 2) / #row.items
       for i, item in ipairs(row.items) do
@@ -122,6 +148,45 @@ function Menu:paint()
           frame = { x = x, y = y + 22, w = slot, h = 14 },
         })
       end
+
+    elseif kind == "segment" then
+      -- A row of equal zones with the chosen one filled. One tap target per
+      -- option rather than a list you have to open.
+      local zoneW = (W - INSET * 2) / #row.options
+      add({
+        type = "rectangle", action = "fill",
+        roundedRectRadii = { xRadius = 7, yRadius = 7 },
+        fillColor = c.hair,
+        frame = { x = INSET, y = y + 2, w = W - INSET * 2, h = 26 },
+      })
+      for i, id in ipairs(row.options) do
+        local chosen = (row.on == id)
+        local zx = INSET + zoneW * (i - 1)
+        if chosen then
+          add({
+            type = "rectangle", action = "fill",
+            roundedRectRadii = { xRadius = 6, yRadius = 6 },
+            fillColor = c.fur,
+            frame = { x = zx + 2, y = y + 4, w = zoneW - 4, h = 22 },
+          })
+        end
+        local label = row.labels and (type(row.labels) == "function"
+                        and row.labels(id) or row.labels[id]) or id
+        add({
+          type = "text",
+          text = text(label, Palette.small, chosen and c.panel or c.faded, "center"),
+          frame = { x = zx, y = y + 9, w = zoneW, h = 16 },
+        })
+      end
+      if row.note then
+        add({
+          type = "text",
+          text = text(row.note, Palette.small - 0.5, c.faded, "center"),
+          frame = { x = INSET, y = y + 31, w = W - INSET * 2, h = 16 },
+        })
+      end
+      self.hits[#self.hits + 1] =
+        { index = index, y = y, h = h - 2, row = row, zones = row.options, zoneW = zoneW }
 
     else
       if hot then
@@ -171,6 +236,15 @@ function Menu:paint()
           radius = th / 2 - 2.5,
         })
         titleW = titleW - tw - 10
+
+      elseif kind == "stepper" then
+        add({
+          type = "text",
+          text = text("＋", Palette.small, hot and c.fur or c.faded, "right"),
+          frame = { x = rightEdge - 14, y = rowMid - 8, w = 14, h = 16 },
+        })
+        titleW = titleW - 20
+        rightEdge = rightEdge - 20
 
       elseif kind == "into" then
         add({
@@ -240,6 +314,11 @@ local function measure(rows)
   for _, row in ipairs(rows) do total = total + heightOf(row) end
   return total
 end
+
+-- Exposed so the page tests can assert nothing renders past the screen edge.
+Menu.measure = measure
+Menu.heightOf = heightOf
+Menu.W = W
 
 function Menu:fill(rows)
   self.rows = rows
@@ -315,7 +394,7 @@ function Menu:open(rows, point, screen)
   self:paint()
 
   self.canvas:canvasMouseEvents(true, true, true, true)
-  self.canvas:mouseCallback(function(_, event, _, _, my)
+  self.canvas:mouseCallback(function(_, event, _, mx, my)
     if event == "mouseExit" then
       if self.hot then self.hot = nil self:paint() end
       return
@@ -326,14 +405,21 @@ function Menu:open(rows, point, screen)
     if event == "mouseUp" then
       if not hit then return end
       local row = hit.row
-      if row.kind == "back" then
+      if row.kind == "segment" then
+        -- Which zone was tapped.
+        local i = math.floor((mx - INSET) / hit.zoneW) + 1
+        local id = hit.zones[math.max(1, math.min(#hit.zones, i))]
+        row.act(id)
+        local rebuild = self.pageNow
+        self:fill(rebuild and rebuild() or rows)
+      elseif row.kind == "back" then
         self:ascend()
       elseif row.page then
         self:descend(row.page, self.pageNow or function() return rows end)
       else
         -- Toggles and choices keep the panel open so you can see the change;
         -- anything else is a command, and closes it.
-        if row.kind == "toggle" or row.kind == "choice" then
+        if row.kind == "toggle" or row.kind == "choice" or row.kind == "stepper" then
           row.act()
           local rebuild = self.pageNow
           self:fill(rebuild and rebuild() or rows)

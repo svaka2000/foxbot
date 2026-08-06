@@ -24,6 +24,7 @@ local History  = require("foxbot.history")
 local Stats    = require("foxbot.stats")
 local Away     = require("foxbot.away")
 local Board    = require("foxbot.menu")
+local Pages    = require("foxbot.pages")
 
 local M = {}
 
@@ -473,449 +474,116 @@ local function handle(event)
 end
 
 -- ------------------------------------------------------------------- menus
+--
+-- The pages themselves live in pages.lua, as pure functions of the context
+-- assembled here. This file used to carry all fifteen of them and had grown
+-- past a thousand lines because of it.
 
-local home        -- forward declaration; sub-pages link back to it
-local chatterPage
+local pages     -- built in start(), once settings and the ledger exist
 
-local function backRow()
-  return { kind = "back", title = "‹  Back" }
-end
+local function buildPages()
+  return Pages.new({
+    settings = settings,
+    sessions = sessions,
+    ledger = ledger,
+    recent = function() return recent end,
+    fox = fox,
+    keyOf = keyOf,
+    restingMood = restingMood,
+    chimeFor = chimeFor,
 
---- The header: what he is doing, in a sentence, with a dot the right colour.
-local function statusRow()
-  local waiting, running = sessions:waitingCount(), sessions:count()
-  local mood = restingMood()
+    Settings = Settings, Sessions = Sessions, Stats = Stats, Voice = Voice,
+    Chime = Chime, Coats = Coats, Mood = Mood, Hush = Hush, Palette = Palette,
 
-  local title, detail
-  if waiting > 0 then
-    title = waiting == 1 and "1 session needs you" or (waiting .. " sessions need you")
-    local first = sessions:blocked()[1]
-    detail = first and ("blocked " .. (Sessions.duration(first.elapsed) or "")) or nil
-  elseif running > 0 then
-    title = running == 1 and "1 session running" or (running .. " sessions running")
-    local longest = sessions:list()[1]
-    detail = longest and (longest.session .. " · " .. (Sessions.duration(longest.elapsed) or "")) or nil
-  else
-    title = "Nothing running"
-    detail = Mood.get(mood).label:lower()
-  end
+    chatty = { LEVELS = CHATTY_LEVELS, LABEL = CHATTY_LABEL, NOTE = CHATTY_NOTE },
+    awaySteps = AWAY_STEPS,
+    awayLabel = AWAY_LABEL,
+    detailOptions = DETAIL,
+    chimeEvents = CHIME_EVENTS,
 
-  return { kind = "status", title = title, detail = detail,
-           tone = Mood.get(mood).badge }
-end
-
---- Today, in three figures.
-local function statsRow()
-  local today = Stats.summarise(ledger.rows, Stats.startOfDay())
-  return {
-    kind = "stats",
-    items = {
-      { label = "turns",  value = tostring(today.turns) },
-      { label = "worked", value = Stats.human(today.seconds) },
-      { label = "tokens", value = Stats.tokens(today.tokens + today.subTokens) or "—" },
-    },
-  }
-end
-
-local function runningPage()
-  local rows = { statusRow(), { kind = "sep" } }
-
-  local blocked = sessions:blocked()
-  if #blocked > 0 then
-    rows[#rows + 1] = { kind = "label", title = "Waiting on you" }
-    for _, row in ipairs(blocked) do
-      rows[#rows + 1] = {
-        kind = "row", title = row.session, tone = "asking",
-        value = Sessions.duration(row.elapsed),
-        note = (row.hint ~= "" and row.hint) or nil,
-        act = function() Focus.terminal(row.tty, row.app) end,
-      }
-    end
-    rows[#rows + 1] = { kind = "sep" }
-  end
-
-  local live = sessions:list()
-  rows[#rows + 1] = { kind = "label", title = "Running" }
-  if #live == 0 then
-    rows[#rows + 1] = { kind = "row", title = "Nothing right now", tone = "faded" }
-  end
-  for _, row in ipairs(live) do
-    rows[#rows + 1] = {
-      kind = "row", title = row.session, tone = "running",
-      value = Sessions.duration(row.elapsed),
-      act = function() Focus.terminal(row.tty, row.app) end,
-    }
-  end
-
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = backRow()
-  return rows
-end
-
-local function reportPage()
-  local today = Stats.summarise(ledger.rows, Stats.startOfDay())
-  local week = Stats.summarise(ledger.rows, Stats.startOfDay(os.time() - 6 * 86400))
-  local streak = Stats.streak(ledger.rows)
-
-  local rows = { statsRow(), { kind = "sep" }, { kind = "label", title = "Where it went" } }
-
-  local ranked = Stats.ranked(today, 5)
-  if #ranked == 0 then
-    rows[#rows + 1] = { kind = "row", title = "Nothing today yet", tone = "faded" }
-  end
-  for _, bucket in ipairs(ranked) do
-    rows[#rows + 1] = {
-      kind = "row", title = bucket.folder,
-      value = Stats.human(bucket.seconds) ..
-              (Stats.tokens(bucket.tokens) and ("  " .. Stats.tokens(bucket.tokens)) or ""),
-    }
-  end
-
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = { kind = "label", title = "Longer view" }
-  rows[#rows + 1] = { kind = "row", title = "This week",
-                      value = week.turns .. " turns · " .. Stats.human(week.seconds) }
-  if streak > 1 then
-    rows[#rows + 1] = { kind = "row", title = "Streak", tone = "settled",
-                        value = streak .. " days" }
-  end
-
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = backRow()
-  return rows
-end
-
-local function recentPage()
-  local rows = { { kind = "label", title = "Recent sessions" } }
-  local seen = {}
-
-  for _, event in ipairs(recent) do
-    seen[keyOf(event)] = true
-    rows[#rows + 1] = {
-      kind = "row", title = event.session, value = os.date("%H:%M", event.ts),
-      act = function() Focus.terminal(event.tty, event.app) end,
-    }
-  end
-  for _, row in ipairs(ledger:recent(RECALL)) do
-    local key = row.session_id or row.session
-    if not seen[key] then
-      seen[key] = true
-      rows[#rows + 1] = {
-        kind = "row", title = row.session, value = os.date("%H:%M", row.ts),
-        act = function() Focus.reveal(row.cwd) end,
-      }
-    end
-  end
-  if #rows == 1 then
-    rows[#rows + 1] = { kind = "row", title = "Nothing yet", tone = "faded" }
-  end
-
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = backRow()
-  return rows
-end
-
-local function voicePage()
-  local rows = { { kind = "label", title = "How he says it" } }
-  for _, name in ipairs(Voice.order) do
-    local voice = Voice.get(name)
-    rows[#rows + 1] = {
-      kind = "choice", title = voice.label, on = settings.voice == name,
-      note = "“" .. Voice.sample(name, "done") .. "”",
-      act = function()
+    -- Every action the menu can take. Pages never do anything themselves.
+    act = {
+      toggle = function(name)
+        Settings.toggle(settings, name)
+        if name == "typing" then panel:types(settings.typing) end
+      end,
+      bump = function(name, wrap)
+        settings[name] = ((settings[name] or 0) + 1) % wrap
+        Settings.save(settings)
+      end,
+      setLevel = function(id) M.setLevel(id) end,
+      setChatty = function(id)
+        settings.chatty = id
+        Settings.save(settings)
+      end,
+      setSkin = function(id)
+        settings.skin = Palette.use(id)
+        Settings.save(settings)
+        panel:clear()
+        if fox then fox:paintBadge() end
+      end,
+      setVoice = function(name)
         settings.voice = name
         Settings.save(settings)
         M.demo()
       end,
-    }
-  end
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = backRow()
-  return rows
-end
-
-local function detailPage()
-  local rows = { { kind = "label", title = "How much of a finished turn" } }
-  for _, option in ipairs(DETAIL) do
-    rows[#rows + 1] = {
-      kind = "choice", title = option.label, on = settings.detail == option.id,
-      note = option.note,
-      act = function()
-        settings.detail = option.id
+      setDetail = function(id)
+        settings.detail = id
         Settings.save(settings)
         M.demoLines()
       end,
-    }
-  end
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = backRow()
-  return rows
-end
-
-local function soundPickPage(event)
-  return function()
-    local rows = { { kind = "label", title = event.label } }
-    for _, choice in ipairs(Chime.choices()) do
-      rows[#rows + 1] = {
-        kind = "choice", title = choice.label,
-        on = chimeFor(event.kind) == choice.id,
-        act = function()
-          settings.chimes = settings.chimes or {}
-          settings.chimes[event.kind] = choice.id
-          Settings.save(settings)
-          Chime.play(choice.id)
-        end,
-      }
-    end
-    rows[#rows + 1] = { kind = "sep" }
-    rows[#rows + 1] = backRow()
-    return rows
-  end
-end
-
-local function soundsPage()
-  local rows = { { kind = "label", title = "A sound per event" } }
-  for _, event in ipairs(CHIME_EVENTS) do
-    rows[#rows + 1] = {
-      kind = "into", title = event.label,
-      value = Chime.label(chimeFor(event.kind)),
-      page = soundPickPage(event),
-    }
-  end
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = {
-    kind = "row", title = "Add your own…",
-    note = "drop audio in the folder, then reload",
-    act = function() Chime.reveal() end,
-  }
-  rows[#rows + 1] = backRow()
-  return rows
-end
-
---- One dial for how much he interrupts.
-function chatterPage()
-  local rows = { { kind = "label", title = "How much he speaks up" } }
-  for _, level in ipairs(CHATTY_LEVELS) do
-    rows[#rows + 1] = {
-      kind = "choice", title = CHATTY_LABEL[level],
-      on = (settings.chatty or "normal") == level,
-      note = CHATTY_NOTE[level],
-      act = function()
-        settings.chatty = level
+      setAway = function(seconds) M.setAway(seconds) end,
+      setChime = function(kind, id)
+        settings.chimes = settings.chimes or {}
+        settings.chimes[kind] = id
         Settings.save(settings)
+        Chime.play(id)
       end,
-    }
-  end
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = { kind = "row", tone = "faded",
-    title = "He never announces a turn starting" }
-  rows[#rows + 1] = { kind = "row", tone = "faded",
-    title = "or a session closing, at any setting" }
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = backRow()
-  return rows
-end
-
-local function hushPage()
-  local rows = {
-    { kind = "label", title = "Quiet hours" },
-    { kind = "toggle", title = "Keep quiet overnight", on = settings.hush,
-      note = "he keeps tracking, he just stops interrupting",
-      act = function() Settings.toggle(settings, "hush") end },
-    { kind = "row", title = "Starts", value = string.format("%02d:00", settings.hushFrom or 22),
-      act = function()
-        settings.hushFrom = ((settings.hushFrom or 22) + 1) % 24
-        Settings.save(settings)
-      end },
-    { kind = "row", title = "Ends", value = string.format("%02d:00", settings.hushTo or 8),
-      act = function()
-        settings.hushTo = ((settings.hushTo or 8) + 1) % 24
-        Settings.save(settings)
-      end },
-    { kind = "toggle", title = "Silence only", on = settings.hushSoftly,
-      note = "notes still appear, they just make no sound",
-      act = function() Settings.toggle(settings, "hushSoftly") end },
-    { kind = "sep" },
-    { kind = "label", title = "When he sleeps" },
-    { kind = "row", title = "Curls up at",
-      value = string.format("%02d:00", settings.sleepFrom or 23),
-      act = function()
-        settings.sleepFrom = ((settings.sleepFrom or 23) + 1) % 24
-        Settings.save(settings)
-      end },
-    { kind = "row", title = "Wakes at",
-      value = string.format("%02d:00", settings.sleepTo or 6),
-      act = function()
-        settings.sleepTo = ((settings.sleepTo or 6) + 1) % 24
-        Settings.save(settings)
-      end },
-    { kind = "sep" },
-    { kind = "row", title = "Always silent while screen sharing", tone = "faded" },
-    { kind = "sep" },
-    backRow(),
-  }
-  return rows
-end
-
-local function awayPage()
-  local current = settings.awayAfter or 0
-  return {
-    { kind = "label", title = "When you're not here" },
-    { kind = "toggle", title = "Hold notes until I'm back", on = settings.catchUp,
-      note = "one summary instead of a stack of stale ones",
-      act = function() Settings.toggle(settings, "catchUp") end },
-    { kind = "sep" },
-    { kind = "label", title = "Away means" },
-    { kind = "choice", title = AWAY_LABEL[0], on = current == 0,
-      note = "exact — the screen is off, you're definitely not reading",
-      act = function() M.setAway(0) end },
-    { kind = "choice", title = AWAY_LABEL[900], on = current == 900,
-      act = function() M.setAway(900) end },
-    { kind = "choice", title = AWAY_LABEL[1800], on = current == 1800,
-      note = "a guess — watching a long turn looks like idling",
-      act = function() M.setAway(1800) end },
-    { kind = "sep" },
-    backRow(),
-  }
-end
-
-local function projectsPage()
-  local seen, folders = {}, {}
-  for _, row in ipairs(ledger:recent(40)) do
-    if row.folder and row.folder ~= "" and not seen[row.folder] then
-      seen[row.folder] = true
-      folders[#folders + 1] = row.folder
-    end
-  end
-  for folder in pairs(settings.perProject or {}) do
-    if not seen[folder] then seen[folder] = true folders[#folders + 1] = folder end
-  end
-  table.sort(folders)
-
-  local rows = { { kind = "label", title = "Mute a noisy project" } }
-  if #folders == 0 then
-    rows[#rows + 1] = { kind = "row", title = "No projects yet", tone = "faded" }
-  end
-  for _, folder in ipairs(folders) do
-    local rule = Settings.project(settings, folder)
-    rows[#rows + 1] = {
-      kind = "toggle", title = folder, on = rule.mute == true,
-      -- `false` clears the rule; see Settings.setProject.
-      act = function() Settings.setProject(settings, folder, { mute = not rule.mute }) end,
-    }
-  end
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = backRow()
-  return rows
-end
-
---- Which moods the chosen coat actually has a drawing for.
-local function wardrobePage()
-  local has = {}
-  for _, mood in ipairs(Coats.moods(settings.coat, Mood.order)) do has[mood] = true end
-
-  local rows = {
-    { kind = "label", title = "Drawings for " .. Coats.label(settings.coat) },
-  }
-  for _, mood in ipairs(Mood.order) do
-    local art = Mood.art(mood)
-    rows[#rows + 1] = {
-      kind = "row", title = Mood.get(mood).label,
-      value = has[art] and "own art" or "default",
-      tone = has[art] and "settled" or nil,
-    }
-  end
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = {
-    kind = "row", title = "Add drawings…",
-    note = "name them " .. (settings.coat or "foxbot") .. "-sleeping.png, and so on",
-    act = function() Coats.reveal() end,
-  }
-  rows[#rows + 1] = backRow()
-  return rows
-end
-
-local function coatPage()
-  local rows = { { kind = "label", title = "Sprite" } }
-  for _, coat in ipairs(Coats.all(Mood.order)) do
-    rows[#rows + 1] = {
-      kind = "choice", title = coat.label,
-      on = (settings.coat or Coats.default) == coat.id,
-      act = function()
-        settings.coat = coat.id
+      setCoat = function(id)
+        settings.coat = id
         Settings.save(settings)
         hs.reload()          -- the sprite set is loaded once, at start
       end,
-    }
-  end
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = { kind = "into", title = "Moods with their own art",
-                      value = #Coats.moods(settings.coat, Mood.order) .. "/" .. #Mood.order,
-                      page = wardrobePage }
-  rows[#rows + 1] = { kind = "row", title = "Add your own…",
-                      act = function() Coats.reveal() end }
-  rows[#rows + 1] = { kind = "sep" }
-  rows[#rows + 1] = backRow()
-  return rows
+      muteProject = function(folder, on)
+        -- `false` clears the rule; see Settings.setProject.
+        Settings.setProject(settings, folder, { mute = on })
+      end,
+      focus = function(tty, app) Focus.terminal(tty, app) end,
+      reveal = function(cwd) Focus.reveal(cwd) end,
+      revealSounds = function() Chime.reveal() end,
+      revealCoats = function() Coats.reveal() end,
+      toggleFox = function() M.toggle() end,
+      demo = function() M.demo() end,
+      demoAsk = function() M.demoAsk() end,
+      tour = function() M.tour() end,
+      reload = function() hs.reload() end,
+      quit = function() hs.application.get("Hammerspoon"):kill() end,
+    },
+  })
 end
 
---- The page you land on.
-function home()
-  return {
-    statusRow(),
-    { kind = "sep" },
-    statsRow(),
-    { kind = "sep" },
 
-    { kind = "into", title = "Sessions", page = runningPage,
-      value = sessions:count() > 0 and tostring(sessions:count()) or nil },
-    { kind = "into", title = "Today", page = reportPage },
-    { kind = "into", title = "Recent", page = recentPage },
-    { kind = "sep" },
-
-    { kind = "label", title = "Interruptions" },
-    { kind = "into", title = "How much he speaks up", page = chatterPage,
-      value = CHATTY_LABEL[settings.chatty or "normal"] },
-    { kind = "toggle", title = "Chase unanswered questions", on = settings.remind,
-      note = "again at 1m, 5m, 15m",
-      act = function() Settings.toggle(settings, "remind") end },
-    { kind = "toggle", title = "Mute everything", on = settings.quiet,
-      act = function() Settings.toggle(settings, "quiet") end },
-    { kind = "into", title = "Quiet hours", page = hushPage,
-      value = settings.hush and Hush.window(settings) or "off" },
-    { kind = "into", title = "When you're away", page = awayPage,
-      value = AWAY_LABEL[settings.awayAfter or 0] },
-    { kind = "into", title = "Per project", page = projectsPage },
-    { kind = "sep" },
-
-    { kind = "label", title = "Appearance" },
-    { kind = "into", title = "Voice", page = voicePage,
-      value = Voice.get(settings.voice).label },
-    { kind = "into", title = "Detail", page = detailPage,
-      value = (settings.detail or "brief") },
-    { kind = "into", title = "Sounds", page = soundsPage },
-    { kind = "into", title = "Sprite", page = coatPage,
-      value = Coats.label(settings.coat) },
-    { kind = "row", title = "Colours", value = Palette.label(Palette.skin),
-      act = function() M.nextSkin() end },
-    { kind = "sep" },
-
-    { kind = "row", title = fox:hidden() and "Show foxbot" or "Hide foxbot",
-      keys = "⌃⌥⌘F", act = function() M.toggle() end },
-    { kind = "row", title = "Show me a note", act = function() M.demo() end },
-    { kind = "row", title = "Show me a question", act = function() M.demoAsk() end },
-    { kind = "row", title = "Reload", act = function() hs.reload() end },
-    { kind = "row", title = "Quit foxbot", tone = "broken",
-      act = function() hs.application.get("Hammerspoon"):kill() end },
-  }
-end
-
---- Open the panel wherever it was asked for.
 function M.openMenu(at)
   if panel then panel:anchorTo(fox:frame(), fox:screen()) end
   if board:isOpen() then board:close() return end
+  local home = function() return pages:home() end
   board:open(home(), at or hs.mouse.absolutePosition(), fox:screen())
   board:showing(home)
+end
+
+--- The three-way switch on the home page: everything, silent, or paused.
+function M.setLevel(id)
+  if id == "paused" then
+    settings.pauseUntil = os.time() + Pages.PAUSE_FOR
+  elseif id == "silent" then
+    settings.pauseUntil = 0
+    settings.quiet = true
+  else
+    settings.pauseUntil = 0
+    settings.quiet = false
+  end
+  Settings.save(settings)
+  M.paintBar()
 end
 
 --- The menu bar carries the live count, so status is readable with the fox
@@ -923,6 +591,14 @@ end
 function M.paintBar()
   if not bar then return end
   local live, blocked = sessions:count(), sessions:waitingCount()
+
+  -- Paused is worth saying in the tooltip, so a silent fox never looks broken.
+  local backIn = Hush.backIn(settings)
+  if backIn then
+    bar:setTitle("zz")
+    bar:setTooltip("Foxbot — paused, " .. backIn)
+    return
+  end
 
   if blocked > 0 then
     bar:setTitle("?" .. blocked)
@@ -980,6 +656,18 @@ function M.state()
     at = { x = fox.x, y = fox.y },
     recent = names,
   }
+end
+
+--- Walk through what he can do. Replaced by the real tour shortly; for now it
+--- at least does something honest rather than erroring from the menu.
+function M.tour()
+  panel:anchorTo(fox:frame(), fox:screen())
+  panel:say({
+    title = "foxbot",
+    body = "the tour isn't built yet — click me any time for the panel,"
+           .. " and drag me anywhere you like.",
+    hold = 10,
+  })
 end
 
 -- -------------------------------------------------------------------- demos
@@ -1054,8 +742,11 @@ local function start()
   if not fox then return end
 
 
-  board = Board.new()
   panel = Panel.new()
+  panel:types(settings.typing)
+  board = Board.new()
+  -- After everything it closes over exists.
+  pages = buildPages()
   panel:anchorTo(fox:frame(), fox:screen())
 
   bar = hs.menubar.new()

@@ -35,7 +35,6 @@ local SCHEMA = {
   prepared    = false,       -- have Hammerspoon's own prefs been set once
 
   -- live awareness
-  showRunning = true,
 
   -- How much he speaks up. One dial rather than a row of toggles, because the
   -- toggles were individually reasonable and collectively deafening — 46 events
@@ -47,6 +46,14 @@ local SCHEMA = {
   -- the menu bar already carry that, and "a session closed" is the least
   -- actionable thing he could interrupt you with.
   chatty      = "normal",
+
+  -- Everything hushed until this moment. 0 means not paused. This is the
+  -- "make it stop" button on the home page, and it expires by itself so you
+  -- can't silence him in a huff and forget.
+  pauseUntil  = 0,
+
+  -- Notes reveal themselves letter by letter.
+  typing      = true,
 
   -- being left alone
   hush        = false,
