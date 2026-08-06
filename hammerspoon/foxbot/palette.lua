@@ -39,6 +39,12 @@ local skins = {
     settled = rgb("62C077"),
     asking  = rgb("F0B429"),
     broken  = rgb("E2564F"),
+    bubbleEdge   = rgb("C05F3B"),
+    bubbleFill   = rgb("FDFBF7"),
+    bubbleShadow = rgb("A7A6A7"),
+    bubbleInk    = rgb("1A1520"),
+    bubbleFaint  = rgb("7A7480"),
+    bubbleGlow   = rgb("C05F3B", 0.14),
   },
   daylight = {
     label   = "Daylight",
@@ -53,6 +59,12 @@ local skins = {
     settled = rgb("2A7D43"),
     asking  = rgb("A8730B"),
     broken  = rgb("B33A34"),
+    bubbleEdge   = rgb("B4552F"),
+    bubbleFill   = rgb("FFFFFF"),
+    bubbleShadow = rgb("9C9B9C"),
+    bubbleInk    = rgb("14101A"),
+    bubbleFaint  = rgb("6E6874"),
+    bubbleGlow   = rgb("B4552F", 0.12),
   },
   burrow = {
     -- Flattened out, for when a projector is watching.
@@ -68,6 +80,12 @@ local skins = {
     settled = rgb("9AB2A0"),
     asking  = rgb("B8AC91"),
     broken  = rgb("B89A98"),
+    bubbleEdge   = rgb("8A8288"),
+    bubbleFill   = rgb("EFEDEA"),
+    bubbleShadow = rgb("9A989A"),
+    bubbleInk    = rgb("22202A"),
+    bubbleFaint  = rgb("7C7A82"),
+    bubbleGlow   = rgb("8A8288", 0.1),
   },
 }
 
@@ -107,6 +125,7 @@ Palette.noteWide   = 440   -- one carrying detail lines
 Palette.pad        = 14
 Palette.gutter     = 12    -- fox to panel
 Palette.leading    = 8     -- note to note
+Palette.typeRate   = 55    -- characters a second when he speaks
 Palette.linger     = 12    -- seconds a note stays up
 Palette.lingerStep = 7     -- ambient progress notes go sooner
 Palette.lingerLong = 30    -- the welcome-back summary earns longer

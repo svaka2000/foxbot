@@ -399,6 +399,9 @@ local function catchUp(held, since)
     lines = lines,
     stamp = (#stamp > 0) and table.concat(stamp, " · ") or nil,
     hold = Palette.lingerLong,
+    -- You've just walked back to the machine; don't make you watch a summary
+    -- of what you missed type itself out.
+    instant = true,
     chips = { { label = "clear", act = function() panel:clear() end } },
   })
 end
