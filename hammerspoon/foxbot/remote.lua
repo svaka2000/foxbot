@@ -66,10 +66,60 @@ function Remote.available()
   return Remote.key() ~= nil
 end
 
--- Walking a folder means a subprocess, and the menu row that discloses what
--- would be sent is rebuilt on every hover. Without this, moving the mouse down
--- the Attention page forks `find` once per frame.
+-- Walking a folder is not free, and the menu row that discloses what would be
+-- sent is rebuilt on every hover. Without this, moving the mouse down the
+-- Attention page walks the project once per frame.
 local seen = {}
+
+Remote.MAX_FILES = 400
+Remote.MAX_DEPTH = 2
+
+-- Big, uninteresting, and present in most projects. Walking node_modules to
+-- find out that a project contains JavaScript is a slow way to learn nothing.
+local SKIP = {
+  [".git"] = true, ["node_modules"] = true, ["__pycache__"] = true,
+  ["vendor"] = true, ["target"] = true, ["build"] = true, ["dist"] = true,
+  [".venv"] = true, ["venv"] = true, [".next"] = true, ["Pods"] = true,
+}
+
+--- List files under a folder, without a shell.
+---
+--- This used to be `io.popen("find " .. ("%q"):format(path) .. ...)`. Lua's
+--- `%q` quotes for *Lua*, not for a shell: it produces a double-quoted string,
+--- and inside double quotes a shell still expands `$(...)` and backticks. A
+--- project directory is not a trusted string — you can be handed one by
+--- cloning a repository — so a folder named with a command substitution in it
+--- would have run that command.
+---
+--- The fix is not better escaping. It is not calling a shell.
+function Remote.walk(folder)
+  local out = {}
+
+  local function into(path, depth)
+    if depth > Remote.MAX_DEPTH or #out >= Remote.MAX_FILES then return end
+
+    local ok = pcall(function()
+      for name in hs.fs.dir(path) do
+        if #out >= Remote.MAX_FILES then return end
+        if name ~= "." and name ~= ".." and not SKIP[name] then
+          local full = path .. "/" .. name
+          local attrs = hs.fs.attributes(full)
+          if attrs and attrs.mode == "directory" then
+            into(full, depth + 1)
+          elseif name:find("%.") then
+            out[#out + 1] = full
+          end
+        end
+      end
+    end)
+    -- An unreadable folder is not an error worth surfacing: it just has
+    -- nothing to contribute to a guess about which languages are in use.
+    if not ok then return end
+  end
+
+  into(folder, 1)
+  return out
+end
 
 --- Which languages are in a folder. Extensions only, counted, top few —
 --- deliberately the least identifying thing that is still useful.
@@ -81,15 +131,7 @@ function Remote.languages(folder, ls)
   local real = (ls == nil)
   if real and seen[folder] then return seen[folder] end
 
-  ls = ls or function(path)
-    local out = {}
-    local pipe = io.popen("/usr/bin/find " .. ("%q"):format(path)
-                          .. " -maxdepth 2 -type f -name '*.*' 2>/dev/null | head -400")
-    if not pipe then return out end
-    for line in pipe:lines() do out[#out + 1] = line end
-    pipe:close()
-    return out
-  end
+  ls = ls or Remote.walk
 
   local counts = {}
   for _, path in ipairs(ls(folder)) do
@@ -185,6 +227,12 @@ function Remote.tip(languages, done)
 
   pickModel(function(model)
     if not model then return done(nil) end
+
+    -- Re-read rather than reusing the one captured above. Listing the models
+    -- is a round trip, and deleting the key file is meant to stop this
+    -- immediately -- including between the two requests.
+    key = Remote.key()
+    if not key then return done(nil) end
 
     local body = hs.json.encode({
       model = model,

@@ -249,12 +249,19 @@ do
     for _, item in ipairs(require("foxbot.shop").everything(everything)) do
       if not dearest or item.price > dearest.price then dearest = item end
     end
+    -- Only affordable items link to this page, so test it from a purse that
+    -- can just about manage it -- otherwise "you'd have left" renders a
+    -- negative number that could never appear.
+    local purse0 = stocked.ctx.wallet()
+    purse0.balance = dearest.price + 20
+    stocked.ctx.wallet = function() return purse0 end
+
     local rows = stocked:confirm(dearest)
     ok("the confirm page renders", #rows > 0)
     ok("and fits", Menu.measure(rows) <= Pages.MAX_PAGE)
 
     local sawPrice, sawLeft, canLeave = false, false, false
-    local purse = stocked.ctx.wallet()
+    local purse = purse0
     for _, row in ipairs(rows) do
       if row.value == dearest.price .. " ◉" then sawPrice = true end
       if row.value == (purse.balance - dearest.price) .. " ◉" then sawLeft = true end

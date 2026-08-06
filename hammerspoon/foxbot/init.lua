@@ -373,19 +373,24 @@ function M.name()
 end
 
 function M.rename()
-  local ok, given = pcall(function()
-    local _, text = hs.dialog.textPrompt(
-      "What should he be called?",
-      "It shows up wherever his name does.",
-      M.name(), "Save", "Cancel")
-    return text
-  end)
+  local ok, pressed, given = pcall(hs.dialog.textPrompt,
+    "What should he be called?",
+    "It shows up wherever his name does.",
+    M.name(), "Save", "Cancel")
   if not ok then return end
 
+  -- textPrompt returns the button AND the text, and it returns the text
+  -- whichever button you pressed. Discarding the button meant Cancel renamed
+  -- him anyway.
+  if pressed ~= "Save" then return end
+
   given = (given or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  -- Counted in characters, not bytes: "Reynard the Magnificent" is 23 either
+  -- way, but a name in Japanese would be rejected at eight.
+  local length = utf8.len(given) or 0
   -- A blank name would leave rows reading "Hide ". Empty means "back to
   -- Foxbot" rather than "no name".
-  settings.nickname = (given ~= "" and #given <= 24) and given or ""
+  settings.nickname = (given ~= "" and length <= 24) and given or ""
   Settings.save(settings)
 end
 
@@ -395,19 +400,32 @@ end
 --- the thing you just spent three days earning should be visible the instant
 --- you pay for it, not two menus later.
 function M.buy(id)
-  if not purse then return end
+  local function refuse(why)
+    panel:anchorTo(fox:frame(), fox:screen())
+    panel:say({ title = "Couldn't buy that", body = why,
+                instant = true, hold = 10 })
+  end
+
+  if not purse then return refuse("His wallet isn't open yet.") end
 
   local item = Shop.find(id, (function()
     local have = {}
     for _, coat in ipairs(Coats.all(Mood.order)) do have[coat.id] = true end
     return have
   end)())
-  if not item then return end
+  if not item then return refuse("That isn't on the shelf any more.") end
 
-  local bought = purse:buy(id, item.price)
-  if not bought then return end
+  local bought, why = purse:buy(id, item.price)
+  if not bought then
+    return refuse(why == "unsaved"
+      and "His wallet couldn't be written to, so nothing was taken."
+      or "You can't afford that yet.")
+  end
 
-  Shop.equip(id, {
+  -- Equipping runs other people's code paths -- a palette, a sound map, a
+  -- reload. If any of it throws after the debit, you have paid for something
+  -- you did not get, so the purchase is undone rather than left half done.
+  local equipped = pcall(Shop.equip, id, {
     palette = function(name) M.setSkin(name) end,
     sounds = function(map)
       local chimes = settings.chimes or {}
@@ -418,6 +436,13 @@ function M.buy(id)
     coat = function(name) M.setCoat(name) end,
     rename = function() M.rename() end,
   })
+
+  if not equipped then
+    purse.balance = purse.balance + item.price
+    purse.owned[id] = nil
+    purse:save()
+    return refuse("Something went wrong putting it on. You've been refunded.")
+  end
 
   fox:feel("pleased", restingMood())
   fox:startle()
@@ -433,10 +458,10 @@ end
 
 --- Show one thing he knows.
 local function tellNote(item, volunteered)
-  local silence, show = Hush.check(settings)
   -- Asking for one is a request, and a request is answered even at "only when
-  -- needed"; volunteering is interrupting, and interrupting has to earn it.
-  if volunteered and (not show or fox:hidden()) then return end
+  -- needed". Volunteering is interrupting, and M.tellMe gated that before it
+  -- got as far as here.
+  local silence = Hush.check(settings)
 
   if not silence and volunteered then Chime.play(chimeFor("nudge")) end
   fox:feel("pleased", restingMood())
@@ -458,6 +483,14 @@ end
 --- paragraphs of markdown — lands on the pack rather than on an error. There
 --- is nothing to go wrong from where you are sitting.
 function M.tellMe(volunteered)
+  -- Checked here, not in tellNote. A volunteered tip that is going to be
+  -- suppressed must not send a request on the way to being suppressed --
+  -- being hushed should mean nothing happens, not that it happens quietly.
+  if volunteered then
+    local _, show = Hush.check(settings)
+    if not show or fox:hidden() then return end
+  end
+
   local function fromPack()
     local item = lore and lore:pick()
     if item then tellNote(item, volunteered) end
@@ -951,10 +984,17 @@ end
 
 local function start()
   settings = Settings.load()
+
+  -- Before the palette is applied. A bought palette is only in Palette.order
+  -- once Shop.restore has put it there, and the saved skin may well be one --
+  -- so restoring after applying leaves the settings page unable to show you
+  -- the palette you are currently looking at.
+  hs.fs.mkdir(DEN)
+  purse = Wallet.new(WALLET):load()
+  Shop.restore(purse.owned)
+
   Palette.use(settings.skin or "dusk")
   prepare()
-
-  hs.fs.mkdir(DEN)
   readTo = fileSize(INBOX)      -- only ever announce things that happen live
 
   sessions = Sessions.new()
@@ -1007,11 +1047,17 @@ local function start()
       -- The end of a work block is the one moment in the day he's certain you
       -- are stopping anyway, which makes it the only place worth volunteering
       -- something unprompted. Once a day, and never during the block itself.
-      if settings.lore and ended == Timer.WORK and lore then
+      if settings.lore ~= false and ended == Timer.WORK and lore then
         local day = Stats.startOfDay()
         if not lore:offeredToday(day) then
-          lore:markOffered(os.time())
-          hs.timer.doAfter(2, function() M.tellMe(true) end)
+          hs.timer.doAfter(2, function()
+            -- Marked inside the callback and after the gate, so a tip that
+            -- never appears does not use up the day's one offer.
+            local _, show = Hush.check(settings)
+            if not show or fox:hidden() then return end
+            lore:markOffered(os.time())
+            M.tellMe(true)
+          end)
         end
       end
     end,
@@ -1050,11 +1096,6 @@ local function start()
   M.paintBar()
 
   away = Away.new({ threshold = settings.awayAfter, onReturn = catchUp })
-
-  purse = Wallet.new(WALLET):load()
-  -- A bought palette has to still be in the list after a restart. Buying
-  -- grants it; this is what makes it stick.
-  Shop.restore(purse.owned)
 
   lore = Lore.new({
     settings = settings,

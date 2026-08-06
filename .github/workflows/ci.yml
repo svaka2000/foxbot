@@ -50,8 +50,11 @@ jobs:
           # Everything except remote.lua stays offline. remote.lua is the single
           # opt-in feature that leaves the machine, and confining it to one file
           # is what keeps that claim checkable rather than aspirational.
+          # --exclude matches a basename anywhere, so a future tools/remote.lua
+          # would be waved through too. Exclude the one allowed path instead.
           if grep -rn "hs.http\|urlevent\|curl \|wget \|socket\." \
-               --exclude=remote.lua hammerspoon/ hooks/; then
+               hammerspoon/ hooks/ \
+               | grep -v "^hammerspoon/foxbot/remote.lua:"; then
             echo "::error::a network call appeared outside remote.lua"
             exit 1
           fi

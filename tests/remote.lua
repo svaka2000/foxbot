@@ -93,6 +93,41 @@ do
   check("an injected lister always runs", walks, 2)
 end
 
+do
+  -- This used to build a shell command with io.popen and Lua's %q, which
+  -- quotes for Lua, not for a shell -- and inside double quotes a shell still
+  -- expands $(...) and backticks. You can be handed a directory name by
+  -- cloning a repository, so that was a way to run a command.
+  --
+  -- There is no shell any more. This asserts the source rather than the
+  -- behaviour, because a test that proved the behaviour would have to run the
+  -- injected command to find out.
+  -- Comments only, stripped out: the docstring in remote.lua explains what it
+  -- used to do, and naming io.popen in prose is not calling it.
+  local code = {}
+  for line in io.lines("hammerspoon/foxbot/remote.lua") do
+    if not line:match("^%s*%-%-") then code[#code + 1] = line end
+  end
+  local text = table.concat(code, "\n")
+
+  ok("nothing here opens a shell", not text:find("io.popen", 1, true))
+  ok("and nothing here runs a command", not text:find("os.execute", 1, true))
+
+  -- The walk still has to stop somewhere, or a home directory takes minutes.
+  ok("the walk is bounded", (Remote.MAX_FILES or 0) > 0 and (Remote.MAX_DEPTH or 0) > 0)
+
+  -- A hostile folder name is now just a string.
+  local nasty = "/tmp/$(touch /tmp/foxbot-pwned)"
+  local langs = Remote.languages(nasty, function(path)
+    check("the path arrives unmangled", path, nasty)
+    return { path .. "/a.lua" }
+  end)
+  check("and still yields a language", langs[1], "lua")
+  local pwned = io.open("/tmp/foxbot-pwned", "r")
+  ok("and nothing was executed", pwned == nil)
+  if pwned then pwned:close() os.remove("/tmp/foxbot-pwned") end
+end
+
 -- ------------------------------------------------------------------ tidying
 
 do

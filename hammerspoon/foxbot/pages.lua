@@ -635,7 +635,11 @@ function Pages:attention()
   if remote then
     rows[#rows + 1] = {
       kind = "toggle", title = "Fresh tips", on = s.fresh,
-      note = remote.ready and remote.sends or "needs a key in ~/.claude/foxbot/groq.key",
+      -- Branched on `ready` alone. Written as `ready and sends or "needs a
+      -- key"`, a ready remote with an empty disclosure would show the key
+      -- message, which is the one thing it definitely isn't.
+      note = remote.ready and (remote.sends or "extensions only")
+             or "needs a key in ~/.claude/foxbot/groq.key",
       act = function() c.act.toggle("fresh") end,
     }
   end
