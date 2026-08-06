@@ -140,6 +140,9 @@ function Shop.equip(id, apply)
   local kind, rest = id:match("^(%a+)%.(.+)$")
 
   if kind == "palette" then
+    -- unlock() returns false both for "already listed" and for "no such
+    -- palette", so ask whether it exists rather than whether it was added.
+    if not Palette.exists(rest) then return false end
     Palette.unlock(rest)
     if apply.palette then apply.palette(rest) end
     return true

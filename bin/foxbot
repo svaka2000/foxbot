@@ -285,7 +285,13 @@ def cmd_export(history, args):
 
 
 def wallet():
-    """The purse, or None. Read-only, like everything else here."""
+    """The purse, or None. Read-only, like everything else here.
+
+    Normalised rather than returned raw. An empty Lua table encodes as a JSON
+    array, so `owned` is a list on a wallet that has bought nothing, and a
+    half-written file can put anything anywhere. Callers should not each have
+    to remember that.
+    """
     try:
         with open(WALLET) as f:
             saved = json.load(f)
@@ -293,7 +299,24 @@ def wallet():
         return None
     if not isinstance(saved, dict):
         return None
-    return saved
+
+    def number(value, fallback=0):
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback
+
+    raw_owned = saved.get("owned")
+    owned = sorted(k for k, v in raw_owned.items()
+                   if isinstance(k, str) and v is True) if isinstance(raw_owned, dict) else []
+
+    raw_day = saved.get("day")
+    day = raw_day if isinstance(raw_day, dict) else {}
+
+    return {
+        "balance": number(saved.get("balance")),
+        "earnedTotal": number(saved.get("earnedTotal")),
+        "owned": owned,
+        "day_on": number(day.get("on")),
+        "day_earned": number(day.get("earned")),
+    }
 
 
 def cmd_donuts(history, args):
@@ -304,18 +327,15 @@ def cmd_donuts(history, args):
         print(dim("  none yet — finish a turn and he starts counting\n"))
         return
 
-    balance = purse.get("balance", 0)
-    earned = purse.get("earnedTotal", 0)
-    day = purse.get("day") or {}
-    today = day.get("earned", 0) if day.get("on", 0) >= start_of_day() else 0
+    balance = purse["balance"]
+    earned = purse["earnedTotal"]
+    today = purse["day_earned"] if purse["day_on"] >= start_of_day() else 0
 
     field("balance", balance, green)
     field("today", f"{today} of {A_DAY}")
     field("earned", earned)
 
-    owned = purse.get("owned") or {}
-    # An empty Lua table encodes as [], so this is a list on a fresh wallet.
-    names = sorted(owned.keys()) if isinstance(owned, dict) else []
+    names = purse["owned"]
     print()
     if names:
         print(f"  {bold('owned')}")
@@ -367,8 +387,14 @@ def cmd_doctor(history, args):
     # take the README's word for it.
     key = os.path.join(DIR, "groq.key")
     if os.path.exists(key):
-        mode = oct(os.stat(key).st_mode & 0o777)[2:]
-        check("network", True, f"a key is present ({mode}); off unless switched on")
+        bits = os.stat(key).st_mode & 0o777
+        mode = oct(bits)[2:]
+        # Anyone who can read the file can spend your API credit. Owner-only or
+        # it is not ok, whatever the rest of the install looks like.
+        private = (bits & 0o077) == 0
+        check("api key private", private,
+              f"mode {mode}" + ("" if private else " — run: chmod 600 " + key))
+        check("network", True, "a key is present; still off unless switched on")
     else:
         check("network", True, "no key — nothing can leave this machine")
 

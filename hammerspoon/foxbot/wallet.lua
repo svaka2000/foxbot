@@ -55,7 +55,16 @@ function Wallet:load()
   -- weeks earning, and a half-written one after a crash must not zero it.
   self.balance     = tonumber(saved.balance) or 0
   self.earnedTotal = tonumber(saved.earnedTotal) or self.balance
-  self.owned       = type(saved.owned) == "table" and saved.owned or {}
+  -- Rebuilt rather than adopted. `{}` encodes as a JSON array, so a wallet
+  -- that has never bought anything decodes back as one -- and anything else
+  -- malformed decodes as an array of whatever it was. Shop.restore() calls
+  -- id:match() on every key, which throws on a number.
+  self.owned = {}
+  if type(saved.owned) == "table" then
+    for id, held in pairs(saved.owned) do
+      if type(id) == "string" and held == true then self.owned[id] = true end
+    end
+  end
   self.lastTurn    = tonumber(saved.lastTurn) or 0
   if type(saved.day) == "table" then
     self.day = { on = tonumber(saved.day.on) or 0,
@@ -64,14 +73,34 @@ function Wallet:load()
   return self
 end
 
+--- Written to a temporary file and renamed over the real one.
+---
+--- `io.open(path, "w")` truncates before it writes, so a crash mid-write
+--- leaves a half a JSON object where someone's balance used to be. load()
+--- survives that, but surviving it and never causing it are different
+--- promises. rename() on the same filesystem is atomic: either the old file
+--- is there or the new one is.
 function Wallet:save()
-  local file = io.open(self.path, "w")
+  local temp = self.path .. ".tmp"
+  local file = io.open(temp, "w")
   if not file then return false end
-  file:write(hs.json.encode({
-    balance = self.balance, earnedTotal = self.earnedTotal,
-    owned = self.owned, day = self.day, lastTurn = self.lastTurn,
-  }))
-  file:close()
+
+  local ok = pcall(function()
+    file:write(hs.json.encode({
+      balance = self.balance, earnedTotal = self.earnedTotal,
+      owned = self.owned, day = self.day, lastTurn = self.lastTurn,
+    }))
+  end)
+  local closed = file:close()
+
+  if not ok or not closed then
+    os.remove(temp)
+    return false
+  end
+  if not os.rename(temp, self.path) then
+    os.remove(temp)
+    return false
+  end
   return true
 end
 
@@ -142,9 +171,14 @@ function Wallet:credit(turn, startOfDay)
 
   -- Unblocking yourself quickly. `askedAt` is when he started waiting on you;
   -- rewarding the gap rewards answering, not the asking.
-  if turn.askedAt and turn.at and (turn.at - turn.askedAt) <= Wallet.QUICK_WITHIN then
-    total = total + Wallet.QUICK_ANSWER
-    why.quick = Wallet.QUICK_ANSWER
+  if turn.askedAt and turn.at then
+    local gap = turn.at - turn.askedAt
+    -- A negative gap means the clocks disagree, not that you answered before
+    -- being asked. Without the lower bound that reads as instant.
+    if gap >= 0 and gap <= Wallet.QUICK_WITHIN then
+      total = total + Wallet.QUICK_ANSWER
+      why.quick = Wallet.QUICK_ANSWER
+    end
   end
 
   self.lastTurn = turn.at or os.time()
@@ -183,7 +217,15 @@ function Wallet:buy(id, price)
 
   self.balance = self.balance - price
   self.owned[id] = true
-  self:save()
+
+  -- If it could not be written down it did not happen. Otherwise you own it
+  -- until the next restart, at which point the donuts come back and the thing
+  -- you bought does not.
+  if not self:save() then
+    self.balance = self.balance + price
+    self.owned[id] = nil
+    return false, "unsaved"
+  end
   return true
 end
 
@@ -191,7 +233,10 @@ end
 function Wallet:grant(id)
   if self:owns(id) then return false end
   self.owned[id] = true
-  self:save()
+  if not self:save() then
+    self.owned[id] = nil
+    return false
+  end
   return true
 end
 

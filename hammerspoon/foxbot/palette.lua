@@ -188,6 +188,12 @@ Palette.order = { "dusk", "daylight", "burrow" }
 Palette.LOCKED = { "terminal", "blueprint", "sakura", "midnight" }
 Palette.skin = "dusk"
 
+--- Is this a palette at all? unlock() answering "no" is ambiguous: it also
+--- says no to one that is already in the list.
+function Palette.exists(name)
+  return skins[name] ~= nil
+end
+
 --- Add a bought palette to the list you can choose from.
 function Palette.unlock(name)
   if not skins[name] then return false end

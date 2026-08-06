@@ -166,6 +166,62 @@ do
   check("and owned is still a table", type(w.owned), "table")
 end
 
+do
+  -- An empty Lua table encodes as a JSON array, so `owned` comes back as one on
+  -- any wallet that has bought nothing. Adopting it directly gave Shop.restore
+  -- integer keys, and it calls id:match() on every one of them.
+  local f = io.open(PATH, "w") f:write('{"balance": 40, "owned": []}') f:close()
+  local w = Wallet.new(PATH):load()
+  check("an array of owned is not adopted", next(w.owned), nil)
+  ok("so restoring it doesn't throw", pcall(Shop.restore, w.owned))
+
+  f = io.open(PATH, "w")
+  f:write('{"balance": 40, "owned": ["palette.sakura", "pack.arcade"]}')
+  f:close()
+  w = Wallet.new(PATH):load()
+  check("nor is a list of names", next(w.owned), nil)
+  ok("and that doesn't throw either", pcall(Shop.restore, w.owned))
+
+  -- Only string keys holding exactly true survive.
+  f = io.open(PATH, "w")
+  f:write('{"balance": 40, "owned": {"palette.sakura": true, "junk": 7}}')
+  f:close()
+  w = Wallet.new(PATH):load()
+  ok("a real purchase is kept", w:owns("palette.sakura"))
+  ok("and a junk value is not", not w:owns("junk"))
+end
+
+do
+  -- Answering before you were asked is a disagreeing clock, not a fast answer.
+  local w = fresh()
+  local _, why = w:credit({ tokens = 0, at = 1000, askedAt = 9000 }, 0)
+  check("a negative gap earns no bonus", why.quick, nil)
+
+  local w2 = fresh()
+  local _, edge = w2:credit({ tokens = 0, at = 1000, askedAt = 1000 }, 0)
+  check("answering instantly does", edge.quick, Wallet.QUICK_ANSWER)
+end
+
+do
+  -- The file is written to a temporary name and renamed over the real one, so
+  -- a crash mid-write cannot leave half a JSON object where a balance was.
+  local w = fresh()
+  w:earn(30, 1000)
+  local leftover = io.open(PATH .. ".tmp", "r")
+  ok("no temporary file is left behind", leftover == nil)
+  if leftover then leftover:close() end
+
+  -- A purchase that could not be written down did not happen: the donuts must
+  -- still be there, or a restart returns them and keeps the item.
+  local sealed = Wallet.new("/nonexistent-directory/wallet.json")
+  sealed.balance = 500
+  local bought, why = sealed:buy("palette.sakura", 150)
+  ok("an unsaveable purchase fails", not bought)
+  check("and says why", why, "unsaved")
+  check("and costs nothing", sealed.balance, 500)
+  ok("and is not owned", not sealed:owns("palette.sakura"))
+end
+
 -- ---------------------------------------------------------------- the shelf
 
 do
@@ -242,6 +298,13 @@ do
 
   ok("the nameplate equips", Shop.equip("name", apply))
   ok("nonsense doesn't", not Shop.equip("nope.nothing", apply))
+
+  -- A palette id that names nothing must not report success, or the shop would
+  -- charge for it and hand over the palette you already had.
+  applied.palette = nil
+  ok("an unknown palette doesn't equip", not Shop.equip("palette.chartreuse", apply))
+  check("and nothing was applied", applied.palette, nil)
+  ok("an unknown pack doesn't either", not Shop.equip("pack.bagpipes", apply))
 end
 
 do
