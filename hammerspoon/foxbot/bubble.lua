@@ -23,45 +23,85 @@ Bubble.unit = 2
 Bubble.border = 2        -- units
 Bubble.chamfer = 2       -- units the corners step in
 Bubble.shadow = 1        -- units, offset down-right
-Bubble.tailDepth = 5     -- units tall
-Bubble.tailWidth = 6     -- units wide where it meets the bubble
-Bubble.tailInset = 3     -- units from the near edge
+-- The tail comes off the SIDE, vertically centred, and tapers to a point.
+-- It used to hang off the bottom corner as a small staircase, which stopped
+-- well short of the fox and read as belonging to nothing.
+Bubble.tailReach = 5     -- units it sticks out sideways
+Bubble.tailHalf  = 4     -- half its height where it meets the body
+Bubble.tailSlope = 1     -- rows lost per column out; higher = stubbier
 
 -- ------------------------------------------------------------------- shape
 
---- A chamfered rectangle, plus a tail stepping down to a point.
+--- A chamfered rectangle with a tapering tail off one side.
+---
+--- The tail is vertically centred and points outwards, so a bubble sitting
+--- beside the fox aims straight at him. `cols` includes the tail's reach.
 local function silhouette(cols, rows, tailSide)
   local grid = {}
-  local body = rows - (tailSide and Bubble.tailDepth or 0)
+  local reach = tailSide and Bubble.tailReach or 0
+  local body = cols - reach
 
   for y = 1, rows do
     grid[y] = {}
     for x = 1, cols do grid[y][x] = EMPTY end
   end
 
-  for y = 1, body do
+  -- Which columns the body occupies; the tail takes the rest of one side.
+  local from = (tailSide == "left") and (reach + 1) or 1
+  local to = (tailSide == "left") and cols or body
+
+  for y = 1, rows do
     -- Cut the corners on the diagonal: this is what reads as pixel art rather
     -- than as a rounded rectangle.
-    local fromEdge = math.min(y - 1, body - y)
+    local fromEdge = math.min(y - 1, rows - y)
     local cut = math.max(0, Bubble.chamfer - fromEdge)
-    for x = 1 + cut, cols - cut do grid[y][x] = BODY end
+    for x = from + cut, to - cut do grid[y][x] = BODY end
   end
 
-  if tailSide then
-    for i = 0, Bubble.tailDepth - 1 do
-      local y = body + i + 1
-      if y <= rows then
-        -- Each row loses a cell, so the outer edge walks diagonally to a point.
-        local run = math.max(1, Bubble.tailWidth - i)
-        local from
-        if tailSide == "left" then
-          from = 1 + Bubble.tailInset
-        else
-          from = cols - Bubble.tailInset - run + 1
-        end
-        for x = from, math.min(cols, from + run - 1) do
-          if x >= 1 then grid[y][x] = BODY end
-        end
+  return grid
+end
+
+--- Stamp the tail on after the body has been outlined.
+---
+--- Drawn explicitly rather than derived: it tapers to a point, and eroding two
+--- cells off something that thin leaves no interior, which is how it ended up
+--- looking like a hollow arrowhead. Here the two diagonal edges are one cell
+--- of border and everything between them is fill, so it reads solid at any
+--- size.
+local function stampTail(grid, cols, rows, tailSide)
+  if not tailSide then return grid end
+
+  local reach = Bubble.tailReach
+  local body = cols - reach
+  local middle = math.floor(rows / 2) + 1
+
+  for i = 0, reach - 1 do
+    local half = math.floor(Bubble.tailHalf - i * Bubble.tailSlope)
+    local x = (tailSide == "left") and (reach - i) or (body + i + 1)
+    if x < 1 or x > cols then break end
+    if half < 0 then break end
+
+    local top, bottom = middle - half, middle + half
+    for y = top, bottom do
+      if y >= 1 and y <= rows then
+        -- One cell of border along each diagonal flank, fill between.
+        grid[y][x] = (y == top or y == bottom) and EDGE or BODY
+      end
+    end
+
+    -- Cap the tip so the point is closed.
+    if half == 0 then grid[middle][x] = EDGE end
+  end
+
+  -- Open the body's wall where the tail joins it, or they read as two shapes
+  -- pushed together rather than one.
+  local seam = (tailSide == "left") and (reach + 1) or body
+  for offset = 0, Bubble.border - 1 do
+    local x = (tailSide == "left") and (seam + offset) or (seam - offset)
+    if x >= 1 and x <= cols then
+      local half = Bubble.tailHalf - 1
+      for y = middle - half, middle + half do
+        if y >= 1 and y <= rows and grid[y][x] ~= EMPTY then grid[y][x] = BODY end
       end
     end
   end
@@ -145,6 +185,7 @@ function Bubble.shape(cols, rows, tailSide)
 
   local grid = silhouette(cols, rows, tailSide)
   outline(grid, cols, rows, Bubble.border)
+  stampTail(grid, cols, rows, tailSide)
   local rects = mesh(grid, cols, rows)
 
   cache[key] = rects
@@ -155,14 +196,19 @@ end
 --- and the exact size in points it will occupy.
 function Bubble.fit(w, h, withTail)
   local unit = Bubble.unit
-  local cols = math.ceil(w / unit)
-  local rows = math.ceil(h / unit) + (withTail and Bubble.tailDepth or 0)
+  local cols = math.ceil(w / unit) + (withTail and Bubble.tailReach or 0)
+  local rows = math.max(math.ceil(h / unit), Bubble.tailHalf * 2 + 8)
   return cols, rows, cols * unit, rows * unit
 end
 
 --- The inner area a bubble of this size can hold text in, in points.
 function Bubble.padding()
   return (Bubble.border + Bubble.chamfer) * Bubble.unit
+end
+
+--- How much of the width the tail eats, in points.
+function Bubble.reach()
+  return Bubble.tailReach * Bubble.unit
 end
 
 --- Build the canvas elements for one bubble.

@@ -108,6 +108,9 @@ local function measureNote(note)
   -- Round out to whole bubble cells, so the art never lands on a half unit.
   local cols, rows, w, h = Bubble.fit(width, y + pad - 4, true)
   plan.cols, plan.rows, plan.width, plan.height = cols, rows, w, h
+  -- The tail sticks out past the body. Text is laid out against the body, not
+  -- the whole bubble, or a right-aligned stamp ends up sitting on the point.
+  plan.body = w - Bubble.reach()
   return plan
 end
 
@@ -169,12 +172,15 @@ function Panel:render()
 
   for _, note in ipairs(self.notes) do
     local plan = note.plan
-    local left = 0
     local pad = plan.pad
+    -- `left` is the body's left edge, which is not the bubble's when the tail
+    -- points that way.
+    local tail = note.tail or "left"
+    local left = (tail == "left") and Bubble.reach() or 0
 
     -- The bubble itself: sixteen rectangles, whatever the size.
-    for _, element in ipairs(Bubble.elements(left, top, plan.cols, plan.rows,
-                                             note.tail or "left", ink)) do
+    for _, element in ipairs(Bubble.elements(0, top, plan.cols, plan.rows,
+                                             tail, ink)) do
       add(element)
     end
 
@@ -196,7 +202,7 @@ function Panel:render()
       add({
         type = "text",
         text = styled(note.stamp, Palette.small, c.bubbleFaint, "right"),
-        frame = { x = left + plan.width - pad - 130, y = top + pad + 1,
+        frame = { x = left + plan.body - pad - 130, y = top + pad + 1,
                   w = 130, h = 16 },
       })
     end
@@ -248,7 +254,7 @@ function Panel:render()
     end
 
     self.spots[#self.spots + 1] =
-      { note = note, x = left, y = top, w = plan.width, h = plan.height }
+      { note = note, x = left, y = top, w = plan.body, h = plan.height }
 
     top = top + plan.height + Palette.leading
   end
