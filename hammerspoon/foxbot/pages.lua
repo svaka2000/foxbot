@@ -117,6 +117,7 @@ function Pages:home()
       act = function(id) c.act.setLevel(id) end,
     },
     sep(),
+    self:focusRow(),
     { kind = "into", title = "Settings", page = function() return self:settings() end },
     sep(),
     { kind = "row",
@@ -130,6 +131,46 @@ function Pages:home()
     rows[#rows + 1] = row
   end
   return rows
+end
+
+--- The focus timer, as one row that changes shape depending on what it's doing.
+function Pages:focusRow()
+  local c = self.ctx
+  local clock = c.clock and c.clock()
+  if not clock then
+    return { kind = "row", title = "Focus timer", tone = "faded" }
+  end
+
+  if clock:running() then
+    return { kind = "into",
+      title = clock:kind() == c.Timer.WORK and "Focusing" or "On a break",
+      value = clock:clock(),
+      page = function() return self:focus() end }
+  end
+
+  local done = clock:doneToday(c.Stats.startOfDay())
+  return { kind = "row", title = "Start a focus block",
+    value = done > 0 and (done .. " today") or nil,
+    act = function() c.act.startFocus(c.Timer.WORK) end }
+end
+
+function Pages:focus()
+  local c = self.ctx
+  local clock = c.clock()
+  return {
+    { kind = "label",
+      title = clock:kind() == c.Timer.WORK and "Focusing" or "On a break" },
+    { kind = "row", title = "Left", value = clock:clock() },
+    { kind = "row", title = "Give it five more",
+      act = function() c.act.extendFocus() end },
+    { kind = "row", title = "Stop", tone = "broken",
+      act = function() c.act.stopFocus() end },
+    sep(),
+    { kind = "row", tone = "faded",
+      title = "Blocks today: " .. clock:doneToday(c.Stats.startOfDay()) },
+    sep(),
+    back(),
+  }
 end
 
 -- --------------------------------------------------------------- what's on

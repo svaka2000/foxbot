@@ -26,6 +26,7 @@ local Away     = require("foxbot.away")
 local Board    = require("foxbot.menu")
 local Pages    = require("foxbot.pages")
 local Teach    = require("foxbot.teach")
+local Timer    = require("foxbot.timer")
 
 local M = {}
 
@@ -87,7 +88,7 @@ local CHATTY_NOTE = {
 local AWAY_STEPS = { 0, 900, 1800 }
 local AWAY_LABEL = { [0] = "locked or asleep", [900] = "15 min idle", [1800] = "30 min idle" }
 
-local settings, fox, panel, board, bar, watcher, keys, teach
+local settings, fox, panel, board, bar, watcher, keys, teach, clock
 local sessions, ledger, away
 local readTo = 0
 local lastSeen = {}
@@ -506,6 +507,8 @@ local function buildPages()
 
     -- Every action the menu can take. Pages never do anything themselves.
     tourRows = function() return teach and teach:menuRows() or {} end,
+    clock = function() return clock end,
+    Timer = Timer,
 
     act = {
       toggle = function(name)
@@ -517,6 +520,15 @@ local function buildPages()
         Settings.save(settings)
       end,
       setLevel = function(id) M.setLevel(id) end,
+      startFocus = function(kind)
+        clock:start(kind)
+        M.paintBar()
+      end,
+      stopFocus = function()
+        clock:stop()
+        M.paintBar()
+      end,
+      extendFocus = function() clock:extend(300) M.paintBar() end,
       setChatty = function(id)
         settings.chatty = id
         Settings.save(settings)
@@ -597,6 +609,14 @@ end
 function M.paintBar()
   if not bar then return end
   local live, blocked = sessions:count(), sessions:waitingCount()
+
+  -- A running block owns the menu bar: it's the one number you glance at.
+  if clock and clock:running() then
+    bar:setTitle(clock:clock())
+    bar:setTooltip((clock:kind() == Timer.WORK and "focusing" or "on a break")
+                   .. " — " .. (clock:clock() or ""))
+    return
+  end
 
   -- Paused is worth saying in the tooltip, so a silent fox never looks broken.
   local backIn = Hush.backIn(settings)
@@ -748,6 +768,32 @@ local function start()
   panel = Panel.new()
   panel:types(settings.typing)
   board = Board.new()
+  clock = Timer.new({
+    settings = settings,
+    save = function(current) Settings.save(current) end,
+    onFinish = function(ended, suggest)
+      -- One note, one sound, and an offer. It never starts the next block by
+      -- itself; a break you didn't ask for is the beginning of nagging.
+      Chime.play(chimeFor("done"))
+      fox:startle()
+      panel:anchorTo(fox:frame(), fox:screen())
+      panel:say({
+        title = ended == Timer.WORK and "that's twenty-five" or "break's over",
+        body = ended == Timer.WORK
+               and "Nicely done. Take five?"
+               or "Ready when you are.",
+        instant = true,
+        hold = 25,
+        chips = {
+          { label = suggest == Timer.REST and "take a break" or "start a block",
+            act = function() clock:start(suggest) M.paintBar() end },
+          { label = "not now", act = function() end },
+        },
+      })
+      M.paintBar()
+    end,
+  })
+
   teach = Teach.new({
     settings = settings,
     save = function(current) Settings.save(current) end,
@@ -806,6 +852,10 @@ local function start()
     end
 
     if teach then teach:tick() end
+    if clock then
+      if clock:tick() then M.paintBar() end
+      if clock:running() then M.paintBar() end
+    end
 
     if sessions:sweep() > 0 then
       refeel()

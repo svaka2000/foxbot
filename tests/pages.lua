@@ -91,6 +91,12 @@ local function crowded(overrides)
     chimeEvents = { { kind = "done", label = "Turn finished" },
                     { kind = "ask", label = "Asking you something" } },
 
+    Timer = require("foxbot.timer"),
+    clock = function()
+      return require("foxbot.timer").new({ settings = settings,
+                                           now = function() return 1000 end })
+    end,
+
     act = setmetatable({}, { __index = function() return function() end end }),
   }
 end
@@ -118,6 +124,7 @@ local PAGES = {
   { "sprite", Pages.MAX_PAGE },
   { "wardrobe", Pages.MAX_PAGE },
   { "about", Pages.MAX_PAGE },
+  { "focus", Pages.MAX_PAGE },
 }
 
 local tall = {}
